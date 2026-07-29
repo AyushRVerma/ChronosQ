@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: chronosq
+
+  datasource:
+    url: jdbc:postgresql://localhost:5433/chronosq
+    username: chronosq
+    password: chronosq
+
+    hikari:
+      maximum-pool-size: ${CHRONOSQ_DB_POOL_SIZE:10}
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  jackson:
+    time-zone: UTC
+
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+
+
