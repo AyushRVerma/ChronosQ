@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.stream.Stream;
 
+import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -19,7 +20,7 @@ class JobStateMachineTest {
             JobStatus currentStatus,
             JobStatus newStatus
     ) {
-        assertThat(
+        Assertions.assertThat(
                 JobStateMachine.canTransition(currentStatus, newStatus)
         ).isTrue();
 
@@ -47,7 +48,7 @@ class JobStateMachineTest {
                         newStatus
                 )
         )
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(InvalidJobStateTransitionException.class)
                 .hasMessage(
                         "Invalid job status transition: "
                                 + currentStatus
@@ -160,5 +161,26 @@ class JobStateMachineTest {
                         JobStatus.RUNNING
                 )
         );
+    }
+
+    @Test
+    void exceptionShouldExposeTransitionDetails() {
+        InvalidJobStateTransitionException exception =
+                new InvalidJobStateTransitionException(
+                        JobStatus.SUCCEEDED,
+                        JobStatus.READY
+                );
+
+        assertThat(exception.currentStatus())
+                .isEqualTo(JobStatus.SUCCEEDED);
+
+        assertThat(exception.requestedStatus())
+                .isEqualTo(JobStatus.READY);
+
+        assertThat(exception)
+                .hasMessage(
+                        "Invalid job status transition: "
+                                + "SUCCEEDED -> READY"
+                );
     }
 }

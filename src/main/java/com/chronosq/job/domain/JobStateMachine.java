@@ -1,6 +1,5 @@
 package com.chronosq.job.domain;
 
-import javax.print.attribute.standard.JobState;
 import java.util.Objects;
 
 public final class JobStateMachine {
@@ -26,10 +25,14 @@ public final class JobStateMachine {
     }
 
     public static void validateTransition(
-            JobStatus currentStatus, JobStatus newStatus) {
-
-        if(!canTransition(currentStatus, newStatus)){
-            throw new IllegalStateException("Invalid job status transition: " +currentStatus+" -> "+newStatus);
+            JobStatus currentStatus,
+            JobStatus newStatus
+    ) {
+        if (!canTransition(currentStatus, newStatus)) {
+            throw new InvalidJobStateTransitionException(
+                    currentStatus,
+                    newStatus
+            );
         }
     }
 }
