@@ -9,7 +9,7 @@ import java.util.UUID;
 
 public interface JobRepository {
 
-    void save(Job job);
+    boolean save(Job job);
 
     Optional<Job> findById(UUID jobId);
 

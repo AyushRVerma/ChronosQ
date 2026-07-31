@@ -11,23 +11,31 @@ public record Job(
         UUID id,
         String queueName,
         String jobType,
+
+        //Payload simply means the actual data being carried or transmitted inside a message, request, or job.
         String payload,
+
         JobStatus status,
         int priority,
+
 //        // Instant is Java's way of representing a single point in time
         Instant availableAt,
+
         ScheduleType scheduleType,
         Long intervalSeconds,
         int attemptCount,
         int maxAttempts,
+
         // if a client submits the same job twice the key ensures only one job is created
         String idempotencyKey,
+
         String lockedBy,
         Instant leaseExpiresAt,
         int timeoutSeconds,
         Instant createdAt,
         Instant updatedAt,
         Instant completedAt,
+
         //used of Optimistic locking: Prevents two workers from updating the same job simultaneously
         //assumes conflicts are rare
         long version

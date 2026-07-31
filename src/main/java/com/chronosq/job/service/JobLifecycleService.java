@@ -9,21 +9,21 @@ import com.chronosq.job.domain.JobStateMachine;
 import com.chronosq.job.domain.JobStatus;
 import com.chronosq.job.repository.JobRepository;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@RequiredArgsConstructor
+// JobLifecycleService handles the business logic of
+// moving a job from one state to another (e.g., SCHEDULED ➔ READY, or RUNNING ➔ SUCCEEDED).
 public class JobLifecycleService {
 
     private final JobRepository jobRepository;
 
-    public JobLifecycleService(
-            JobRepository jobRepository
-    ) {
-        this.jobRepository = jobRepository;
-    }
 
-    @Transactional
+    @Transactional // Enforces that the entire method executes within a single database transaction.
+                  // If any step fails or an exception is thrown, the transaction is rolled back completely.
     public Job transitionTo(
             UUID jobId,
             JobStatus newStatus
@@ -54,10 +54,13 @@ public class JobLifecycleService {
 
         Instant now = Instant.now();
 
+        //If the new status is a final state (SUCCEEDED, DEAD_LETTERED, CANCELLED),
+        // completedAt gets set to now. Otherwise, it remains null.
         Instant completedAt =
                 isTerminalStatus(newStatus)
                         ? now
                         : null;
+
 
         boolean updated = jobRepository.updateStatus(
                 currentJob.id(),

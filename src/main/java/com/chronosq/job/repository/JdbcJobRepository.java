@@ -48,7 +48,6 @@ public class JdbcJobRepository implements JobRepository {
                 version
             )
             VALUES (
-            
                 :id,
                 :queueName,
                 :jobType,
@@ -69,7 +68,8 @@ public class JdbcJobRepository implements JobRepository {
                 :completedAt,
                 :version
             )
-            """;
+             ON CONFLICT DO NOTHING
+       \s""";
 
     private static final String FIND_BY_ID_SQL = """
             SELECT
@@ -146,7 +146,7 @@ public class JdbcJobRepository implements JobRepository {
     }
 
     @Override
-    public void save(Job job) {
+    public boolean save(Job job) {
         Objects.requireNonNull(
                 job,
                 "Job must not be null"
@@ -211,12 +211,13 @@ public class JdbcJobRepository implements JobRepository {
                 .param("version", job.version())
                 .update();
 
-        if (insertedRows != 1) {
-            throw new IllegalStateException(
-                    "Expected to insert one job, but inserted "
-                            + insertedRows
-            );
-        }
+//        if (insertedRows != 1) {
+//            throw new IllegalStateException(
+//                    "Expected to insert one job, but inserted "
+//                            + insertedRows
+//            );
+//        }
+        return insertedRows == 1;
     }
 
     @Override
