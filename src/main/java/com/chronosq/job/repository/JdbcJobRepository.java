@@ -218,7 +218,32 @@ public class JdbcJobRepository implements JobRepository {
 //            );
 //        }
         return insertedRows == 1;
+
     }
+
+    private static final String PROMOTE_DUE_JOBS = """
+        WITH due_jobs AS (
+            SELECT id
+            FROM jobs
+            WHERE status = :scheduledStatus
+              AND available_at <= :currentTime
+            ORDER BY
+                available_at ASC,
+                priority DESC,
+                created_at ASC
+            LIMIT :batchSize
+            FOR UPDATE SKIP LOCKED
+        )
+        UPDATE jobs AS job
+        SET
+            status = :readyStatus,
+            updated_at = :currentTime,
+            version = job.version + 1
+        FROM due_jobs
+        WHERE job.id = due_jobs.id
+        """;
+
+
 
     @Override
     public Optional<Job> findById(UUID jobId) {
@@ -300,4 +325,55 @@ public class JdbcJobRepository implements JobRepository {
 
         return updatedRows == 1;
     }
+
+
+    @Override
+    public int promoteDueJobs(Instant currentTime, int batchSize) {
+
+        Objects.requireNonNull(
+                currentTime,
+                "currentTime must not be null"
+        );
+
+        if (batchSize < 1) {
+            throw new IllegalArgumentException(
+                    "batchSize must be at least 1"
+            );
+        }
+
+        return jdbcClient.sql(PROMOTE_DUE_JOBS)
+                .param(
+                        "scheduledStatus",
+                        JobStatus.SCHEDULED.name()
+                )
+                .param(
+                        "readyStatus",
+                        JobStatus.READY.name()
+                )
+                .param(
+                        "currentTime",
+                        toOffsetDateTime(currentTime)
+                )
+                .param(
+                        "batchSize",
+                        batchSize
+                )
+                .update();
+    }
 }
+
+//FOR UPDATE SKIP LOCKED allows multiple background workers to query
+// and claim jobs from the same PostgreSQL table simultaneously without blocking
+// each other and without taking duplicate jobs.
+
+//Without SKIP LOCKED (Traditional Locking):
+//Clerk A starts looking at tickets 1 to 5 to sell them. He locks them.
+//Clerk B tries to look at tickets 1 to 5 too.
+//Clerk B freezes and waits 🛑 until Clerk A finishes. Clerk B cannot serve any customers until Clerk A is completely done.
+//Result: Slow lines, high waiting times, potential deadlocks.
+//With SKIP LOCKED (Smart Queue Locking):
+//Clerk A starts looking at tickets 1 to 5 and locks them.
+//Clerk B tries to look at available tickets.
+//PostgreSQL notices tickets 1 to 5 are locked, so it skips them instantly and hands tickets 6 to 10 to Clerk B!
+//Clerk C arrives: sees 1-10 are locked, so he gets tickets 11 to 15!
+//Result: All 3 clerks work simultaneously at full speed with zero waiting and zero duplicate tickets sold! ⚡

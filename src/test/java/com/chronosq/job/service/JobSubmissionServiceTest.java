@@ -19,6 +19,7 @@ import com.chronosq.job.domain.JobStatus;
 import com.chronosq.job.domain.ScheduleType;
 import com.chronosq.job.repository.JobRepository;
 
+import com.chronosq.scheduler.JobScheduleCalculator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -345,7 +346,8 @@ class JobSubmissionServiceTest {
 
         return new JobSubmissionService(
                 jobRepository,
-                jobApiMapper
+                jobApiMapper,
+                new JobScheduleCalculator()
         );
     }
 

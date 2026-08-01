@@ -33,4 +33,8 @@ management:
       probes:
         enabled: true
 
-
+chronosq:
+  scheduler:
+    enabled: ${CHRONOSQ_SCHEDULER_ENABLED:true}
+    poll-interval-ms: ${CHRONOSQ_SCHEDULER_POLL_INTERVAL_MS:1000}
+    batch-size: ${CHRONOSQ_SCHEDULER_BATCH_SIZE:100}

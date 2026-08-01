@@ -45,6 +45,9 @@ public class JobController {
 
     private final JobApiMapper jobApiMapper;
 
+    // @Valid triggers Spring's Bean Validation on SubmitJobRequest before execution.
+
+
     @PostMapping
     public ResponseEntity<JobResponse> submitJob(
             @Valid
@@ -54,6 +57,15 @@ public class JobController {
 
         Job job =
                 jobSubmissionService.submit(request);
+     // According to REST Standard Specifications (RFC 9110), when you create a new resource via HTTP POST,
+        // you should return a Location response header telling the client where to find the newly created resource.
+        //
+        //Let's see how the URI is dynamically constructed:
+        //
+        //fromCurrentRequest(): Gets the current request URL (e.g., http://localhost:8080/api/v1/jobs).
+        //.path("/{jobId}"): Appends /{jobId} template to the URL (http://localhost:8080/api/v1/jobs/{jobId}).
+        //.buildAndExpand(job.id()): Replaces {jobId} with the actual UUID generated for this job (e.g. a3f9-1234-5678).
+        //.toUri(): Converts the result into a URI object (http://localhost:8080/api/v1/jobs/a3f9-1234-5678).
 
         URI location =
                 ServletUriComponentsBuilder

@@ -36,7 +36,16 @@ import org.springframework.web.bind.annotation
 import org.springframework.web.method.annotation
         .MethodArgumentTypeMismatchException;
 
+
+
+
+// This class is the central safety net for your entire REST API.
+//
+// Annotated with @RestControllerAdvice, it intercepts exceptions thrown anywhere in your
+// controllers or services and converts them into the standardized ApiErrorResponse JSON
+// structure we just discussed.
 @RestControllerAdvice
+
 public class GlobalApiExceptionHandler {
 
     private static final Logger logger =
@@ -45,12 +54,7 @@ public class GlobalApiExceptionHandler {
             );
 
     @ExceptionHandler(JobNotFoundException.class)
-    public ResponseEntity<ApiErrorResponse>
-    handleJobNotFound(
-
-            JobNotFoundException exception,
-            HttpServletRequest request
-    ) {
+    public ResponseEntity<ApiErrorResponse> handleJobNotFound(JobNotFoundException exception, HttpServletRequest request) {
 
         return buildResponse(
                 HttpStatus.NOT_FOUND,
@@ -61,15 +65,10 @@ public class GlobalApiExceptionHandler {
         );
     }
 
-    @ExceptionHandler(
-            InvalidJobStateTransitionException.class
-    )
-    public ResponseEntity<ApiErrorResponse>
-    handleInvalidStateTransition(
-
+    @ExceptionHandler(InvalidJobStateTransitionException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidStateTransition(
             InvalidJobStateTransitionException exception,
-            HttpServletRequest request
-    ) {
+            HttpServletRequest request ) {
 
         return buildResponse(
                 HttpStatus.CONFLICT,
@@ -80,15 +79,10 @@ public class GlobalApiExceptionHandler {
         );
     }
 
-    @ExceptionHandler(
-            ConcurrentJobModificationException.class
-    )
-    public ResponseEntity<ApiErrorResponse>
-    handleConcurrentModification(
-
+    @ExceptionHandler(ConcurrentJobModificationException.class)
+    public ResponseEntity<ApiErrorResponse> handleConcurrentModification(
             ConcurrentJobModificationException exception,
-            HttpServletRequest request
-    ) {
+            HttpServletRequest request ) {
 
         return buildResponse(
                 HttpStatus.CONFLICT,
@@ -99,19 +93,14 @@ public class GlobalApiExceptionHandler {
         );
     }
 
-    @ExceptionHandler(
-            MethodArgumentNotValidException.class
-    )
-    public ResponseEntity<ApiErrorResponse>
-    handleValidationFailure(
-
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiErrorResponse> handleValidationFailure(
             MethodArgumentNotValidException exception,
-            HttpServletRequest request
-    ) {
+            HttpServletRequest request ) {
 
-        Map<String, String> fieldErrors =
-                new LinkedHashMap<>();
+        Map<String, String> fieldErrors = new LinkedHashMap<>();
 
+        // // 1. Collect field-level validation errors (@NotBlank, @Min, @Max)
         exception.getBindingResult()
                 .getFieldErrors()
                 .forEach(
@@ -121,6 +110,7 @@ public class GlobalApiExceptionHandler {
                         )
                 );
 
+        // 2. Collect class-level validation errors (@AssertTrue)
         exception.getBindingResult()
                 .getGlobalErrors()
                 .forEach(
@@ -139,13 +129,8 @@ public class GlobalApiExceptionHandler {
         );
     }
 
-    @ExceptionHandler(
-            HttpMessageNotReadableException.class
-    )
-    public ResponseEntity<ApiErrorResponse>
-    handleUnreadableRequest(
-
-            HttpMessageNotReadableException exception,
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiErrorResponse> handleUnreadableRequest(HttpMessageNotReadableException exception,
             HttpServletRequest request
     ) {
 
@@ -202,19 +187,18 @@ public class GlobalApiExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiErrorResponse>
-    handleUnexpectedError(
-
+    public ResponseEntity<ApiErrorResponse> handleUnexpectedError(
             Exception exception,
             HttpServletRequest request
     ) {
-
+         // Log full stack trace securely on the server
         logger.error(
                 "Unexpected API error for path {}",
                 request.getRequestURI(),
                 exception
         );
 
+        // Return generic message to client without leaking sensitive stack details
         return buildResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "INTERNAL_SERVER_ERROR",
@@ -224,6 +208,8 @@ public class GlobalApiExceptionHandler {
         );
     }
 
+    // Centralizes response creation so every error handler follows the exact
+    // same format and structure!
     private ResponseEntity<ApiErrorResponse>
     buildResponse(
 

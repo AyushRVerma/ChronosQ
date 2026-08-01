@@ -23,4 +23,9 @@ public interface JobRepository {
             Instant completedAt,
             long expectedVersion
     );
+
+    int promoteDueJobs(
+            Instant currentTime,
+            int batchSize
+    );
 }
