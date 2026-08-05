@@ -38,3 +38,16 @@ chronosq:
     enabled: ${CHRONOSQ_SCHEDULER_ENABLED:true}
     poll-interval-ms: ${CHRONOSQ_SCHEDULER_POLL_INTERVAL_MS:1000}
     batch-size: ${CHRONOSQ_SCHEDULER_BATCH_SIZE:100}
+
+  worker:
+    enabled: ${CHRONOSQ_WORKER_ENABLED:false}
+    worker-id: ${CHRONOSQ_WORKER_ID:${random.uuid}}
+    instance-name: ${CHRONOSQ_INSTANCE_NAME:local-chronosq}
+    queue-name: ${CHRONOSQ_WORKER_QUEUE:default}
+    claim-batch-size: ${CHRONOSQ_WORKER_CLAIM_BATCH_SIZE:10}
+    lease-duration-seconds: ${CHRONOSQ_WORKER_LEASE_DURATION_SECONDS:60}
+
+  execution:
+    poll-interval-ms: ${CHRONOSQ_EXECUTION_POLL_INTERVAL_MS:1000}
+    thread-count: ${CHRONOSQ_EXECUTION_THREAD_COUNT:4}
+    queue-capacity: ${CHRONOSQ_EXECUTION_QUEUE_CAPACITY:100}

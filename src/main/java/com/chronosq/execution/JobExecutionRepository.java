@@ -11,4 +11,11 @@ public interface JobExecutionRepository {
     Optional<JobExecution> findById(UUID executionId);
 
     List<JobExecution> findByJobId(UUID jobId);
+
+    boolean finalizeExecution(
+            UUID executionId,
+            String workerId,
+            ExecutionResult result
+    );
+
 }

@@ -11,6 +11,9 @@ import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
+
+//JdbcJobExecutionRepository is the database access component responsible
+//for reading and writing to the job_executions table in PostgreSQL.
 @Repository
 public class JdbcJobExecutionRepository
         implements JobExecutionRepository {
@@ -74,6 +77,19 @@ public class JdbcJobExecutionRepository
             WHERE job_id = :jobId
             ORDER BY attempt_number ASC
             """;
+
+    private static final String FINALIZE_EXECUTION = """
+        UPDATE job_executions
+        SET
+            status = :finalStatus,
+            finished_at = :finishedAt,
+            duration_ms = :durationMs,
+            error_type = :errorType,
+            error_message = :errorMessage
+        WHERE id = :executionId
+          AND worker_id = :workerId
+          AND status = :runningStatus
+        """;
 
     private final JdbcClient jdbcClient;
     private final JobExecutionRowMapper rowMapper;
@@ -186,5 +202,67 @@ public class JdbcJobExecutionRepository
         }
 
         return instant.atOffset(ZoneOffset.UTC);
+    }
+
+    @Override
+    public boolean finalizeExecution(
+            UUID executionId,
+            String workerId,
+            ExecutionResult result
+    ) {
+
+        Objects.requireNonNull(
+                executionId,
+                "executionId must not be null"
+        );
+
+        Objects.requireNonNull(
+                workerId,
+                "workerId must not be null"
+        );
+
+        Objects.requireNonNull(
+                result,
+                "result must not be null"
+        );
+
+        if (workerId.isBlank()) {
+            throw new IllegalArgumentException(
+                    "workerId must not be blank"
+            );
+        }
+
+        int updatedRows = jdbcClient.sql(FINALIZE_EXECUTION)
+                .param("executionId", executionId)
+                .param("workerId", workerId)
+                .param(
+                        "runningStatus",
+                        ExecutionStatus.RUNNING.name()
+                )
+                .param(
+                        "finalStatus",
+                        result.status().name()
+                )
+                .param(
+                        "finishedAt",
+                        toOffsetDateTime(
+                                result.finishedAt()
+                        )
+                )
+                .param(
+                        "durationMs",
+                        result.durationMs()
+                )
+                .param(
+                        "errorType",
+                        result.errorType()
+                )
+                .param(
+                        "errorMessage",
+                        result.errorMessage()
+                )
+                .update();
+
+        return updatedRows == 1;
     }
 }

@@ -5,10 +5,12 @@ import com.chronosq.job.domain.Job;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.chronosq.job.domain.JobStateMachine;
 import com.chronosq.job.domain.JobStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -26,50 +28,50 @@ public class JdbcJobRepository implements JobRepository {
 
     //:id, :queueName = named parameters — Spring replaces these with actual values at runtime. Much safer than string concatenation:
     private static final String INSERT_JOB_SQL = """
-            INSERT INTO jobs (
-                id,
-                queue_name,
-                job_type,
-                payload,
-                status,
-                priority,
-                available_at,
-                schedule_type,
-                interval_seconds,
-                attempt_count,
-                max_attempts,
-                idempotency_key,
-                locked_by,
-                lease_expires_at,
-                timeout_seconds,
-                created_at,
-                updated_at,
-                completed_at,
-                version
-            )
-            VALUES (
-                :id,
-                :queueName,
-                :jobType,
-                CAST(:payload AS JSONB),
-                :status,
-                :priority,
-                :availableAt,
-                :scheduleType,
-                :intervalSeconds,
-                :attemptCount,
-                :maxAttempts,
-                :idempotencyKey,
-                :lockedBy,
-                :leaseExpiresAt,
-                :timeoutSeconds,
-                :createdAt,
-                :updatedAt,
-                :completedAt,
-                :version
-            )
-             ON CONFLICT DO NOTHING
-       \s""";
+                 INSERT INTO jobs (
+                     id,
+                     queue_name,
+                     job_type,
+                     payload,
+                     status,
+                     priority,
+                     available_at,
+                     schedule_type,
+                     interval_seconds,
+                     attempt_count,
+                     max_attempts,
+                     idempotency_key,
+                     locked_by,
+                     lease_expires_at,
+                     timeout_seconds,
+                     created_at,
+                     updated_at,
+                     completed_at,
+                     version
+                 )
+                 VALUES (
+                     :id,
+                     :queueName,
+                     :jobType,
+                     CAST(:payload AS JSONB),
+                     :status,
+                     :priority,
+                     :availableAt,
+                     :scheduleType,
+                     :intervalSeconds,
+                     :attemptCount,
+                     :maxAttempts,
+                     :idempotencyKey,
+                     :lockedBy,
+                     :leaseExpiresAt,
+                     :timeoutSeconds,
+                     :createdAt,
+                     :updatedAt,
+                     :completedAt,
+                     :version
+                 )
+                  ON CONFLICT DO NOTHING
+            \s""";
 
     private static final String FIND_BY_ID_SQL = """
             SELECT
@@ -123,16 +125,16 @@ public class JdbcJobRepository implements JobRepository {
 
 
     private static final String UPDATE_STATUS = """
-        UPDATE jobs
-        SET
-            status = :newStatus,
-            updated_at = :updatedAt,
-            completed_at = :completedAt,
-            version = version + 1
-        WHERE id = :jobId
-          AND status = :expectedStatus
-          AND version = :expectedVersion
-        """;
+            UPDATE jobs
+            SET
+                status = :newStatus,
+                updated_at = :updatedAt,
+                completed_at = :completedAt,
+                version = version + 1
+            WHERE id = :jobId
+              AND status = :expectedStatus
+              AND version = :expectedVersion
+            """;
 
     private final JdbcClient jdbcClient; //
     private final JobRowMapper jobRowMapper;
@@ -222,28 +224,94 @@ public class JdbcJobRepository implements JobRepository {
     }
 
     private static final String PROMOTE_DUE_JOBS = """
-        WITH due_jobs AS (
-            SELECT id
-            FROM jobs
-            WHERE status = :scheduledStatus
-              AND available_at <= :currentTime
+            WITH due_jobs AS (
+                SELECT id
+                FROM jobs
+                WHERE status = :scheduledStatus
+                  AND available_at <= :currentTime
+                ORDER BY
+                    available_at ASC,
+                    priority DESC,
+                    created_at ASC
+                LIMIT :batchSize
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE jobs AS job
+            SET
+                status = :readyStatus,
+                updated_at = :currentTime,
+                version = job.version + 1
+            FROM due_jobs
+            WHERE job.id = due_jobs.id
+            """;
+
+    private static final String CLAIM_READY_JOBS = """
+            WITH claimable_jobs AS (
+                SELECT id
+                FROM jobs
+                WHERE status = :readyStatus
+                  AND queue_name = :queueName
+                  AND available_at <= :currentTime
+                ORDER BY
+                    priority DESC,
+                    created_at ASC
+                LIMIT :batchSize
+                FOR UPDATE SKIP LOCKED
+            ),
+            claimed_jobs AS (
+                UPDATE jobs AS job
+                SET
+                    status = :runningStatus,
+                    locked_by = :workerId,
+                    lease_expires_at = :leaseExpiresAt,
+                    attempt_count =
+                        job.attempt_count + 1,
+                    updated_at = :currentTime,
+                    version = job.version + 1
+                FROM claimable_jobs
+                WHERE job.id = claimable_jobs.id
+                RETURNING job.*
+            )
+            SELECT
+                id,
+                queue_name,
+                job_type,
+                payload,
+                status,
+                priority,
+                available_at,
+                schedule_type,
+                interval_seconds,
+                attempt_count,
+                max_attempts,
+                idempotency_key,
+                locked_by,
+                lease_expires_at,
+                timeout_seconds,
+                created_at,
+                updated_at,
+                completed_at,
+                version
+            FROM claimed_jobs
             ORDER BY
-                available_at ASC,
                 priority DESC,
                 created_at ASC
-            LIMIT :batchSize
-            FOR UPDATE SKIP LOCKED
-        )
-        UPDATE jobs AS job
+            """;
+
+    private static final String FINISH_RUNNING_JOB = """
+        UPDATE jobs
         SET
-            status = :readyStatus,
-            updated_at = :currentTime,
-            version = job.version + 1
-        FROM due_jobs
-        WHERE job.id = due_jobs.id
+            status = :finalStatus,
+            locked_by = NULL,
+            lease_expires_at = NULL,
+            updated_at = :updatedAt,
+            completed_at = :completedAt,
+            version = version + 1
+        WHERE id = :jobId
+          AND status = :runningStatus
+          AND locked_by = :workerId
+          AND version = :expectedVersion
         """;
-
-
 
     @Override
     public Optional<Job> findById(UUID jobId) {
@@ -360,6 +428,169 @@ public class JdbcJobRepository implements JobRepository {
                 )
                 .update();
     }
+
+
+    @Override
+    public List<Job> claimReadyJobs(
+            String queueName,
+            String workerId,
+            Instant currentTime,
+            Instant leaseExpiresAt,
+            int batchSize
+    ) {
+
+        Objects.requireNonNull(
+                queueName,
+                "queueName must not be null"
+        );
+
+        Objects.requireNonNull(
+                workerId,
+                "workerId must not be null"
+        );
+
+        Objects.requireNonNull(
+                currentTime,
+                "currentTime must not be null"
+        );
+
+        Objects.requireNonNull(
+                leaseExpiresAt,
+                "leaseExpiresAt must not be null"
+        );
+
+        if (queueName.isBlank()) {
+            throw new IllegalArgumentException(
+                    "queueName must not be blank"
+            );
+        }
+
+        if (workerId.isBlank()) {
+            throw new IllegalArgumentException(
+                    "workerId must not be blank"
+            );
+        }
+
+        if (!leaseExpiresAt.isAfter(currentTime)) {
+            throw new IllegalArgumentException(
+                    """
+                            leaseExpiresAt must be \
+                            after currentTime
+                            """
+            );
+        }
+
+        if (batchSize < 1) {
+            throw new IllegalArgumentException(
+                    "batchSize must be at least 1"
+            );
+        }
+
+        return jdbcClient.sql(CLAIM_READY_JOBS)
+                .param(
+                        "readyStatus",
+                        JobStatus.READY.name()
+                )
+                .param(
+                        "runningStatus",
+                        JobStatus.RUNNING.name()
+                )
+                .param(
+                        "queueName",
+                        queueName
+                )
+                .param(
+                        "workerId",
+                        workerId
+                )
+                .param(
+                        "currentTime",
+                        toOffsetDateTime(currentTime)
+                )
+                .param(
+                        "leaseExpiresAt",
+                        toOffsetDateTime(
+                                leaseExpiresAt
+                        )
+                )
+                .param(
+                        "batchSize",
+                        batchSize
+                )
+                .query(jobRowMapper)
+                .list();
+    }
+
+    @Override
+    public boolean finishRunningJob(
+            UUID jobId,
+            String workerId,
+            JobStatus finalStatus,
+            Instant updatedAt,
+            Instant completedAt,
+            long expectedVersion
+    ) {
+
+        Objects.requireNonNull(
+                jobId,
+                "jobId must not be null"
+        );
+
+        Objects.requireNonNull(
+                workerId,
+                "workerId must not be null"
+        );
+
+        Objects.requireNonNull(
+                finalStatus,
+                "finalStatus must not be null"
+        );
+
+        Objects.requireNonNull(
+                updatedAt,
+                "updatedAt must not be null"
+        );
+
+        if (workerId.isBlank()) {
+            throw new IllegalArgumentException(
+                    "workerId must not be blank"
+            );
+        }
+
+        JobStateMachine.validateTransition(
+                JobStatus.RUNNING,
+                finalStatus
+        );
+
+        int updatedRows =
+                jdbcClient.sql(FINISH_RUNNING_JOB)
+                        .param("jobId", jobId)
+                        .param("workerId", workerId)
+                        .param(
+                                "runningStatus",
+                                JobStatus.RUNNING.name()
+                        )
+                        .param(
+                                "finalStatus",
+                                finalStatus.name()
+                        )
+                        .param(
+                                "updatedAt",
+                                toOffsetDateTime(updatedAt)
+                        )
+                        .param(
+                                "completedAt",
+                                toOffsetDateTime(completedAt)
+                        )
+                        .param(
+                                "expectedVersion",
+                                expectedVersion
+                        )
+                        .update();
+
+        return updatedRows == 1;
+    }
+
 }
 
 //FOR UPDATE SKIP LOCKED allows multiple background workers to query
