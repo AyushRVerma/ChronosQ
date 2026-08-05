@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.Objects;
 
 import org.springframework.stereotype.Component;
-//4
+
 @Component
 public class JobHandlerRegistry {
 
