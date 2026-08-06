@@ -227,8 +227,9 @@ public class JdbcJobRepository implements JobRepository {
             WITH due_jobs AS (
                 SELECT id
                 FROM jobs
-                WHERE status = :scheduledStatus
-                  AND available_at <= :currentTime
+              WHERE (status = :scheduledStatus
+                      OR status = :retryWaitStatus)
+                AND available_at <= :currentTime
                 ORDER BY
                     available_at ASC,
                     priority DESC,
@@ -415,6 +416,10 @@ public class JdbcJobRepository implements JobRepository {
                         JobStatus.SCHEDULED.name()
                 )
                 .param(
+                        "retryWaitStatus",
+                        JobStatus.RETRY_WAIT.name()
+                )
+                .param(
                         "readyStatus",
                         JobStatus.READY.name()
                 )
@@ -590,6 +595,183 @@ public class JdbcJobRepository implements JobRepository {
 
         return updatedRows == 1;
     }
+
+    @Override
+    public boolean retryRunningJob(
+            UUID jobId,
+            String workerId,
+            Instant retryAt,
+            Instant updatedAt,
+            long expectedVersion
+    ) {
+        JobStateMachine.validateTransition(
+                JobStatus.RUNNING,
+                JobStatus.RETRY_WAIT
+        );
+
+        int updatedRowCount = jdbcClient.sql(
+                        """
+                        UPDATE jobs
+                        SET
+                            status = :retryWaitStatus,
+                            available_at = :retryAt,
+                            locked_by = NULL,
+                            lease_expires_at = NULL,
+                            updated_at = :updatedAt,
+                            completed_at = NULL,
+                            version = version + 1
+                        WHERE id = :jobId
+                          AND status = :runningStatus
+                          AND locked_by = :workerId
+                          AND version = :expectedVersion
+                        """
+                )
+                .param("retryWaitStatus", JobStatus.RETRY_WAIT.name())
+                .param("retryAt", retryAt)
+                .param("updatedAt", updatedAt)
+                .param("jobId", jobId)
+                .param("runningStatus", JobStatus.RUNNING.name())
+                .param("workerId", workerId)
+                .param("expectedVersion", expectedVersion)
+                .update();
+
+        return updatedRowCount == 1;
+    }
+
+    @Override
+    public List<Job> findExpiredRunningJobs(
+            Instant recoveryTime,
+            int batchSize
+    ) {
+        return jdbcClient.sql(
+                        """
+                        SELECT
+                            id,
+                            queue_name,
+                            job_type,
+                            payload,
+                            status,
+                            priority,
+                            available_at,
+                            schedule_type,
+                            interval_seconds,
+                            attempt_count,
+                            max_attempts,
+                            idempotency_key,
+                            locked_by,
+                            lease_expires_at,
+                            timeout_seconds,
+                            created_at,
+                            updated_at,
+                            completed_at,
+                            version
+                        FROM jobs
+                        WHERE status = :runningStatus
+                          AND lease_expires_at <= :recoveryTime
+                        ORDER BY lease_expires_at ASC
+                        LIMIT :batchSize
+                        FOR UPDATE SKIP LOCKED
+                        """
+                )
+                .param(
+                        "runningStatus",
+                        JobStatus.RUNNING.name()
+                )
+                .param(
+                        "recoveryTime",
+                        recoveryTime
+                )
+                .param(
+                        "batchSize",
+                        batchSize
+                )
+                .query(jobRowMapper)
+                .list();
+    }
+
+    @Override
+    public boolean recoverExpiredRunningJob(
+            UUID jobId,
+            String workerId,
+            JobStatus newStatus,
+            Instant availableAt,
+            Instant recoveryTime,
+            long expectedVersion
+    ) {
+        if (newStatus != JobStatus.RETRY_WAIT
+                && newStatus != JobStatus.DEAD_LETTERED) {
+
+            throw new IllegalArgumentException(
+                    "Recovered job status must be RETRY_WAIT "
+                            + "or DEAD_LETTERED"
+            );
+        }
+
+        JobStateMachine.validateTransition(
+                JobStatus.RUNNING,
+                newStatus
+        );
+
+        Instant completedAt =
+                newStatus == JobStatus.DEAD_LETTERED
+                        ? recoveryTime
+                        : null;
+
+        int updatedRowCount = jdbcClient.sql(
+                        """
+                        UPDATE jobs
+                        SET
+                            status = :newStatus,
+                            available_at = :availableAt,
+                            locked_by = NULL,
+                            lease_expires_at = NULL,
+                            updated_at = :recoveryTime,
+                            completed_at = :completedAt,
+                            version = version + 1
+                        WHERE id = :jobId
+                          AND status = :runningStatus
+                          AND locked_by = :workerId
+                          AND lease_expires_at <= :recoveryTime
+                          AND version = :expectedVersion
+                        """
+                )
+                .param(
+                        "newStatus",
+                        newStatus.name()
+                )
+                .param(
+                        "availableAt",
+                        availableAt
+                )
+                .param(
+                        "recoveryTime",
+                        recoveryTime
+                )
+                .param(
+                        "completedAt",
+                        completedAt
+                )
+                .param(
+                        "jobId",
+                        jobId
+                )
+                .param(
+                        "runningStatus",
+                        JobStatus.RUNNING.name()
+                )
+                .param(
+                        "workerId",
+                        workerId
+                )
+                .param(
+                        "expectedVersion",
+                        expectedVersion
+                )
+                .update();
+
+        return updatedRowCount == 1;
+    }
+
 
 }
 

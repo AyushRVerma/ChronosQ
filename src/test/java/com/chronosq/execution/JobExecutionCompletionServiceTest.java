@@ -18,6 +18,8 @@ import com.chronosq.job.domain.Job;
 import com.chronosq.job.domain.JobStatus;
 import com.chronosq.job.domain.ScheduleType;
 import com.chronosq.job.repository.JobRepository;
+import com.chronosq.recovery.RetryDecision;
+import com.chronosq.recovery.RetryDecisionService;
 import com.chronosq.worker.ClaimedJob;
 
 @ExtendWith(MockitoExtension.class)
@@ -32,10 +34,13 @@ class JobExecutionCompletionServiceTest {
     private static final String WORKER_ID = "worker-1";
 
     private static final Instant STARTED_AT =
-            Instant.parse("2026-08-05T10:00:00Z");
+            Instant.parse("2026-08-06T10:00:00Z");
 
     private static final Instant FINISHED_AT =
-            Instant.parse("2026-08-05T10:00:01Z");
+            Instant.parse("2026-08-06T10:00:01Z");
+
+    private static final Instant RETRY_AT =
+            Instant.parse("2026-08-06T10:00:05Z");
 
     @Mock
     private JobRepository jobRepository;
@@ -43,13 +48,17 @@ class JobExecutionCompletionServiceTest {
     @Mock
     private JobExecutionRepository jobExecutionRepository;
 
+    @Mock
+    private RetryDecisionService retryDecisionService;
+
     private JobExecutionCompletionService completionService;
 
     @BeforeEach
     void setUp() {
         completionService = new JobExecutionCompletionService(
                 jobRepository,
-                jobExecutionRepository
+                jobExecutionRepository,
+                retryDecisionService
         );
     }
 
@@ -57,13 +66,7 @@ class JobExecutionCompletionServiceTest {
     void shouldCompleteSuccessfulExecutionAndJob() {
         ClaimedJob claimedJob = createClaimedJob();
 
-        ExecutionResult result = new ExecutionResult(
-                ExecutionStatus.SUCCEEDED,
-                FINISHED_AT,
-                1_000,
-                null,
-                null
-        );
+        ExecutionResult result = successfulResult();
 
         when(jobExecutionRepository.finalizeExecution(
                 EXECUTION_ID,
@@ -80,11 +83,8 @@ class JobExecutionCompletionServiceTest {
                 1L
         )).thenReturn(true);
 
-        completionService.complete(claimedJob, result);
-
-        verify(jobExecutionRepository).finalizeExecution(
-                EXECUTION_ID,
-                WORKER_ID,
+        completionService.complete(
+                claimedJob,
                 result
         );
 
@@ -99,22 +99,86 @@ class JobExecutionCompletionServiceTest {
     }
 
     @Test
-    void shouldDeadLetterJobWhenExecutionFails() {
+    void shouldScheduleRetryForRetryableFailure() {
         ClaimedJob claimedJob = createClaimedJob();
 
-        ExecutionResult result = new ExecutionResult(
-                ExecutionStatus.FAILED,
-                FINISHED_AT,
-                1_000,
-                "IllegalStateException",
-                "Something went wrong"
-        );
+        ExecutionResult result = failedResult();
+
+        RuntimeException failure =
+                new RuntimeException(
+                        "Temporary service problem"
+                );
 
         when(jobExecutionRepository.finalizeExecution(
                 EXECUTION_ID,
                 WORKER_ID,
                 result
         )).thenReturn(true);
+
+        when(retryDecisionService.decide(
+                claimedJob.job(),
+                failure,
+                FINISHED_AT
+        )).thenReturn(
+                RetryDecision.retryAt(RETRY_AT)
+        );
+
+        when(jobRepository.retryRunningJob(
+                JOB_ID,
+                WORKER_ID,
+                RETRY_AT,
+                FINISHED_AT,
+                1L
+        )).thenReturn(true);
+
+        completionService.complete(
+                claimedJob,
+                result,
+                failure
+        );
+
+        verify(jobRepository).retryRunningJob(
+                JOB_ID,
+                WORKER_ID,
+                RETRY_AT,
+                FINISHED_AT,
+                1L
+        );
+
+        verify(jobRepository, never()).finishRunningJob(
+                JOB_ID,
+                WORKER_ID,
+                JobStatus.DEAD_LETTERED,
+                FINISHED_AT,
+                FINISHED_AT,
+                1L
+        );
+    }
+
+    @Test
+    void shouldDeadLetterPermanentFailure() {
+        ClaimedJob claimedJob = createClaimedJob();
+
+        ExecutionResult result = failedResult();
+
+        IllegalArgumentException failure =
+                new IllegalArgumentException(
+                        "Invalid payload"
+                );
+
+        when(jobExecutionRepository.finalizeExecution(
+                EXECUTION_ID,
+                WORKER_ID,
+                result
+        )).thenReturn(true);
+
+        when(retryDecisionService.decide(
+                claimedJob.job(),
+                failure,
+                FINISHED_AT
+        )).thenReturn(
+                RetryDecision.deadLetter()
+        );
 
         when(jobRepository.finishRunningJob(
                 JOB_ID,
@@ -125,7 +189,11 @@ class JobExecutionCompletionServiceTest {
                 1L
         )).thenReturn(true);
 
-        completionService.complete(claimedJob, result);
+        completionService.complete(
+                claimedJob,
+                result,
+                failure
+        );
 
         verify(jobRepository).finishRunningJob(
                 JOB_ID,
@@ -141,13 +209,7 @@ class JobExecutionCompletionServiceTest {
     void shouldThrowWhenExecutionCannotBeFinalized() {
         ClaimedJob claimedJob = createClaimedJob();
 
-        ExecutionResult result = new ExecutionResult(
-                ExecutionStatus.SUCCEEDED,
-                FINISHED_AT,
-                1_000,
-                null,
-                null
-        );
+        ExecutionResult result = successfulResult();
 
         when(jobExecutionRepository.finalizeExecution(
                 EXECUTION_ID,
@@ -156,9 +218,14 @@ class JobExecutionCompletionServiceTest {
         )).thenReturn(false);
 
         assertThatThrownBy(
-                () -> completionService.complete(claimedJob, result)
+                () -> completionService.complete(
+                        claimedJob,
+                        result
+                )
         )
-                .isInstanceOf(ExecutionCompletionConflictException.class);
+                .isInstanceOf(
+                        ExecutionCompletionConflictException.class
+                );
 
         verify(jobRepository, never()).finishRunningJob(
                 JOB_ID,
@@ -170,37 +237,24 @@ class JobExecutionCompletionServiceTest {
         );
     }
 
-    @Test
-    void shouldThrowWhenJobCannotBeFinalized() {
-        ClaimedJob claimedJob = createClaimedJob();
-
-        ExecutionResult result = new ExecutionResult(
+    private ExecutionResult successfulResult() {
+        return new ExecutionResult(
                 ExecutionStatus.SUCCEEDED,
                 FINISHED_AT,
                 1_000,
                 null,
                 null
         );
+    }
 
-        when(jobExecutionRepository.finalizeExecution(
-                EXECUTION_ID,
-                WORKER_ID,
-                result
-        )).thenReturn(true);
-
-        when(jobRepository.finishRunningJob(
-                JOB_ID,
-                WORKER_ID,
-                JobStatus.SUCCEEDED,
+    private ExecutionResult failedResult() {
+        return new ExecutionResult(
+                ExecutionStatus.FAILED,
                 FINISHED_AT,
-                FINISHED_AT,
-                1L
-        )).thenReturn(false);
-
-        assertThatThrownBy(
-                () -> completionService.complete(claimedJob, result)
-        )
-                .isInstanceOf(ExecutionCompletionConflictException.class);
+                1_000,
+                "RuntimeException",
+                "Temporary service problem"
+        );
     }
 
     private ClaimedJob createClaimedJob() {
@@ -218,7 +272,7 @@ class JobExecutionCompletionServiceTest {
                 3,
                 null,
                 WORKER_ID,
-                Instant.parse("2026-08-05T10:01:00Z"),
+                STARTED_AT.plusSeconds(60),
                 30,
                 STARTED_AT,
                 STARTED_AT,

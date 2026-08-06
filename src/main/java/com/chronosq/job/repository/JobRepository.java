@@ -46,4 +46,28 @@ public interface JobRepository {
             Instant completedAt,
             long expectedVersion
     );
+
+    boolean retryRunningJob(
+            UUID jobId,
+            String workerId,
+            Instant retryAt,
+            Instant updatedAt,
+            long expectedVersion
+    );
+
+    List<Job> findExpiredRunningJobs(
+            Instant recoveryTime,
+            int batchSize
+    );
+
+    boolean recoverExpiredRunningJob(
+            UUID jobId,
+            String workerId,
+            JobStatus newStatus,
+            Instant availableAt,
+            Instant recoveryTime,
+            long expectedVersion
+    );
+
+
 }

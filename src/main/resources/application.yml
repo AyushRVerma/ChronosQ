@@ -55,3 +55,20 @@ chronosq:
   webhook:
     connect-timeout-ms: ${CHRONOSQ_WEBHOOK_CONNECT_TIMEOUT_MS:5000}
     read-timeout-ms: ${CHRONOSQ_WEBHOOK_READ_TIMEOUT_MS:30000}
+
+  retry:
+    enabled: ${CHRONOSQ_RETRY_ENABLED:true}
+    initial-delay-ms: ${CHRONOSQ_RETRY_INITIAL_DELAY_MS:1000}
+    maximum-delay-ms: ${CHRONOSQ_RETRY_MAXIMUM_DELAY_MS:300000}
+    multiplier: ${CHRONOSQ_RETRY_MULTIPLIER:2.0}
+    jitter-factor: ${CHRONOSQ_RETRY_JITTER_FACTOR:0.2}
+
+  recovery:
+    enabled: ${CHRONOSQ_RECOVERY_ENABLED:true}
+    poll-interval-ms: ${CHRONOSQ_RECOVERY_POLL_INTERVAL_MS:10000}
+    batch-size: ${CHRONOSQ_RECOVERY_BATCH_SIZE:100}
+
+  heartbeat:
+    enabled: ${CHRONOSQ_HEARTBEAT_ENABLED:true}
+    interval-ms: ${CHRONOSQ_HEARTBEAT_INTERVAL_MS:5000}
+

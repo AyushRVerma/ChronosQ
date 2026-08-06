@@ -105,7 +105,7 @@ public class JobExecutionDispatcher {
                 );
 
         // Safely tell DB: "This job attempt failed because server memory was full"
-        jobExecutionCompletionService.complete(claimedJob, result);
+        jobExecutionCompletionService.complete(claimedJob, result, exception);
 
         log.warn(
                 """

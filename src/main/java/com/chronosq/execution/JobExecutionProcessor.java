@@ -119,7 +119,8 @@ public class JobExecutionProcessor {
 
         jobExecutionCompletionService.complete(
                 claimedJob,
-                result
+                result,
+                exception
         );
 
         logger.warn(

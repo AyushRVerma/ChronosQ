@@ -1,5 +1,6 @@
 package com.chronosq.execution;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,6 +17,12 @@ public interface JobExecutionRepository {
             UUID executionId,
             String workerId,
             ExecutionResult result
+    );
+
+    boolean abandonRunningExecution(
+            UUID jobId,
+            String workerId,
+            Instant recoveredAt
     );
 
 }

@@ -265,4 +265,57 @@ public class JdbcJobExecutionRepository
 
         return updatedRows == 1;
     }
+    @Override
+    public boolean abandonRunningExecution(
+            UUID jobId,
+            String workerId,
+            Instant recoveredAt
+    ) {
+        int updatedRowCount = jdbcClient.sql(
+                        """
+                        UPDATE job_executions
+                        SET
+                            status = :abandonedStatus,
+                            finished_at = :recoveredAt,
+                            duration_ms = NULL,
+                            error_type = :errorType,
+                            error_message = :errorMessage
+                        WHERE job_id = :jobId
+                          AND worker_id = :workerId
+                          AND status = :runningStatus
+                        """
+                )
+                .param(
+                        "abandonedStatus",
+                        ExecutionStatus.ABANDONED.name()
+                )
+                .param(
+                        "recoveredAt",
+                        recoveredAt
+                )
+                .param(
+                        "errorType",
+                        "LEASE_EXPIRED"
+                )
+                .param(
+                        "errorMessage",
+                        "Worker lease expired before "
+                                + "execution completed"
+                )
+                .param(
+                        "jobId",
+                        jobId
+                )
+                .param(
+                        "workerId",
+                        workerId
+                )
+                .param(
+                        "runningStatus",
+                        ExecutionStatus.RUNNING.name()
+                )
+                .update();
+
+        return updatedRowCount == 1;
+    }
 }

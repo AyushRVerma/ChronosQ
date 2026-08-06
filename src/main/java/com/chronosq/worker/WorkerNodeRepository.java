@@ -27,4 +27,10 @@ public interface WorkerNodeRepository {
             String workerId,
             WorkerStatus status
     );
+
+    void registerOrHeartbeat(
+            String workerId,
+            String instanceName,
+            Instant heartbeatTime
+    );
 }

@@ -157,4 +157,40 @@ public class JdbcWorkerNodeRepository
 
         return instant.atOffset(ZoneOffset.UTC);
     }
+
+    @Override
+    public void registerOrHeartbeat(
+            String workerId,
+            String instanceName,
+            Instant heartbeatTime
+    ) {
+        jdbcClient.sql(
+                        """
+                        INSERT INTO worker_nodes (
+                            worker_id,
+                            instance_name,
+                            status,
+                            last_heartbeat_at,
+                            started_at
+                        )
+                        VALUES (
+                            :workerId,
+                            :instanceName,
+                            :activeStatus,
+                            :heartbeatTime,
+                            :heartbeatTime
+                        )
+                        ON CONFLICT (worker_id)
+                        DO UPDATE SET
+                            instance_name = EXCLUDED.instance_name,
+                            status = EXCLUDED.status,
+                            last_heartbeat_at = EXCLUDED.last_heartbeat_at
+                        """
+                )
+                .param("workerId", workerId)
+                .param("instanceName", instanceName)
+                .param("activeStatus", WorkerStatus.ACTIVE.name())
+                .param("heartbeatTime", heartbeatTime)
+                .update();
+    }
 }
