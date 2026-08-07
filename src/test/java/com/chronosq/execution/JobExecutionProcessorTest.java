@@ -1,6 +1,7 @@
 package com.chronosq.execution;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -10,6 +11,8 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
+import com.chronosq.metrics.JobExecutionObserver;
+import com.chronosq.metrics.JobLogContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -48,6 +51,12 @@ class JobExecutionProcessorTest {
     @Mock
     private JobHandler jobHandler;
 
+    @Mock
+    private JobExecutionObserver jobExecutionObserver;
+
+    @Mock
+    private JobLogContext jobLogContext;
+
     private JobExecutionProcessor processor;
 
     @BeforeEach
@@ -60,8 +69,15 @@ class JobExecutionProcessorTest {
         processor = new JobExecutionProcessor(
                 jobHandlerRegistry,
                 completionService,
+                jobExecutionObserver,
                 clock
         );
+
+        when(jobExecutionObserver.openLogContext(
+                any(
+                        ClaimedJob.class
+                )
+        )).thenReturn(jobLogContext);
     }
 
     @Test
@@ -79,7 +95,7 @@ class JobExecutionProcessorTest {
                 ArgumentCaptor.forClass(ExecutionResult.class);
 
         verify(completionService).complete(
-                org.mockito.ArgumentMatchers.eq(claimedJob),
+                eq(claimedJob),
                 resultCaptor.capture()
         );
 
@@ -105,10 +121,14 @@ class JobExecutionProcessorTest {
     void shouldRecordFailureWhenHandlerThrowsException() throws Exception {
         ClaimedJob claimedJob = createClaimedJob();
 
+        // 1. Create it ONCE
+        IllegalStateException handlerException =
+                new IllegalStateException("Handler failed");
+
         when(jobHandlerRegistry.getRequiredHandler("PRINT_MESSAGE"))
                 .thenReturn(jobHandler);
 
-        doThrow(new IllegalStateException("Handler failed"))
+        doThrow(handlerException)
                 .when(jobHandler)
                 .execute(claimedJob.job());
 
@@ -117,9 +137,12 @@ class JobExecutionProcessorTest {
         ArgumentCaptor<ExecutionResult> resultCaptor =
                 ArgumentCaptor.forClass(ExecutionResult.class);
 
+
+
         verify(completionService).complete(
-                org.mockito.ArgumentMatchers.eq(claimedJob),
-                resultCaptor.capture()
+                eq(claimedJob),
+                resultCaptor.capture(),
+                same(handlerException)
         );
 
         ExecutionResult result = resultCaptor.getValue();
@@ -152,8 +175,9 @@ class JobExecutionProcessorTest {
                 ArgumentCaptor.forClass(ExecutionResult.class);
 
         verify(completionService).complete(
-                org.mockito.ArgumentMatchers.eq(claimedJob),
-                resultCaptor.capture()
+                eq(claimedJob),
+                resultCaptor.capture(),
+                any(UnknownJobTypeException.class)
         );
 
         ExecutionResult result = resultCaptor.getValue();

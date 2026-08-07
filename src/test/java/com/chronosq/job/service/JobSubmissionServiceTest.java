@@ -19,6 +19,7 @@ import com.chronosq.job.domain.JobStatus;
 import com.chronosq.job.domain.ScheduleType;
 import com.chronosq.job.repository.JobRepository;
 
+import com.chronosq.metrics.ChronosQMetrics;
 import com.chronosq.scheduler.JobScheduleCalculator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,6 +41,9 @@ class JobSubmissionServiceTest {
 
     @Mock
     private JsonNode payload;
+
+    @Mock
+    private ChronosQMetrics chronosQMetrics;
 
     @Test
     void shouldCreateImmediateJobWithDefaults() {
@@ -347,6 +351,7 @@ class JobSubmissionServiceTest {
         return new JobSubmissionService(
                 jobRepository,
                 jobApiMapper,
+                chronosQMetrics,
                 new JobScheduleCalculator()
         );
     }

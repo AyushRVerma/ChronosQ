@@ -72,3 +72,9 @@ chronosq:
     enabled: ${CHRONOSQ_HEARTBEAT_ENABLED:true}
     interval-ms: ${CHRONOSQ_HEARTBEAT_INTERVAL_MS:5000}
 
+  management:
+    endpoints:
+      web:
+        exposure:
+          include: health,info,prometheus
+

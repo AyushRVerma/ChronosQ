@@ -8,6 +8,7 @@ import com.chronosq.api.JobApiMapper;
 import com.chronosq.api.SubmitJobRequest;
 import com.chronosq.job.domain.Job;
 import com.chronosq.job.repository.JobRepository;
+import com.chronosq.metrics.ChronosQMetrics;
 import com.chronosq.scheduler.JobScheduleCalculator;
 
 import lombok.RequiredArgsConstructor;
@@ -20,9 +21,9 @@ public class JobSubmissionService {
 
     private final JobRepository jobRepository;
     private final JobApiMapper jobApiMapper;
+    private final ChronosQMetrics chronosQMetrics;
 
-    private final JobScheduleCalculator
-            jobScheduleCalculator;
+    private final JobScheduleCalculator jobScheduleCalculator;
 
 
     @Transactional
@@ -91,6 +92,8 @@ public class JobSubmissionService {
                 jobRepository.save(newJob);
 
         if (inserted) {
+            chronosQMetrics.incrementJobSubmitted();
+
             return newJob;
         }
 
@@ -111,9 +114,12 @@ public class JobSubmissionService {
                     );
         }
 
+
         throw new IllegalStateException(
                 "Job could not be inserted"
         );
+
+
     }
 
     private String normalizeIdempotencyKey(

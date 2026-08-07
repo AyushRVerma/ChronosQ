@@ -7,6 +7,8 @@ import java.util.Objects;
 
 import com.chronosq.handler.JobHandler;
 import com.chronosq.handler.JobHandlerRegistry;
+import com.chronosq.metrics.JobExecutionObserver;
+import com.chronosq.metrics.JobLogContext;
 import com.chronosq.worker.ClaimedJob;
 
 import lombok.RequiredArgsConstructor;
@@ -32,6 +34,7 @@ public class JobExecutionProcessor {
 
     private final JobExecutionCompletionService jobExecutionCompletionService;
 
+    private final JobExecutionObserver jobExecutionObserver;
     private final Clock clock;
 
 
@@ -42,31 +45,39 @@ public class JobExecutionProcessor {
                 "claimedJob must not be null"
         );
 
-        try {
+        try (JobLogContext ignored =
+                     jobExecutionObserver.openLogContext(
+                             claimedJob
+                     )) {
+
+            logger.info("Job execution started");
+
+            try {
 //            1. Look up the matching JobHandler for this job's type (e.g. "send-email")
-            JobHandler handler =
-                    jobHandlerRegistry
-                            .getRequiredHandler(
-                                    claimedJob.job()
-                                            .jobType()
-                            );
-   // 2. Run the actual business logic!
-            handler.execute(claimedJob.job());
+                JobHandler handler =
+                        jobHandlerRegistry
+                                .getRequiredHandler(
+                                        claimedJob.job()
+                                                .jobType()
+                                );
+                // 2. Run the actual business logic!
+                handler.execute(claimedJob.job());
 
 
-            // 3. If no exception occurred -> complete successfully!
+                // 3. If no exception occurred -> complete successfully!
 
-            completeSuccessfully(claimedJob);
+                completeSuccessfully(claimedJob);
 
-        } catch (Exception exception) {
+            } catch (Exception exception) {
 
-            completeWithFailure(
-                    claimedJob,
-                    exception
-            );
+                completeWithFailure(
+                        claimedJob,
+                        exception
+                );
+            }
         }
-    }
 
+    }
     private void completeSuccessfully(ClaimedJob claimedJob) {
 
         Instant finishedAt = clock.instant();

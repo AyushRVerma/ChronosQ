@@ -16,6 +16,7 @@ import com.chronosq.execution
 import com.chronosq.job.domain.Job;
 import com.chronosq.job.repository.JobRepository;
 
+import com.chronosq.metrics.ChronosQMetrics;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -31,6 +32,8 @@ import org.springframework.transaction.annotation
 public class JobClaimService {
 
     private final JobRepository jobRepository;
+
+    private final ChronosQMetrics chronosQMetrics;
 
     private final JobExecutionRepository
             jobExecutionRepository;
@@ -74,6 +77,8 @@ public class JobClaimService {
                         claimedJobs.size()
                 );
 
+
+
         for (Job claimedJob : claimedJobs) {
 
             JobExecution execution =
@@ -93,6 +98,10 @@ public class JobClaimService {
                     )
             );
         }
+
+        chronosQMetrics.incrementJobsClaimed(
+                results.size()
+        );
 
         return List.copyOf(results);
     }

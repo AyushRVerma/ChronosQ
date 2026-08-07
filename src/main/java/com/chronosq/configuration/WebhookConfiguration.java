@@ -15,11 +15,9 @@ import org.springframework.web.client.RestClient;
 //This class creates a Spring RestClient bean named "webhookRestClient" configured for safe webhook execution.
 public class WebhookConfiguration {
 
+    //    //RestClient is Spring 6.1+'s modern, synchronous HTTP client for making REST API calls to external servers. Think of it as Postman inside Java code!
     @Bean(name = "webhookRestClient")
-
-    //RestClient is Spring 6.1+'s modern, synchronous HTTP client for making REST API calls to external servers. Think of it as Postman inside Java code!
     public RestClient webhookRestClient(
-            RestClient.Builder restClientBuilder,
             WebhookProperties properties
     ) {
 //        disable HTTP redirects (NEVER) for Webhook
@@ -52,7 +50,7 @@ public class WebhookConfiguration {
                 )
         );
 
-        return restClientBuilder
+        return RestClient.builder()
                 .requestFactory(requestFactory)
                 .build();
     }
