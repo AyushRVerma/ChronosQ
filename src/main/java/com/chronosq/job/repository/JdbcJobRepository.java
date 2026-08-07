@@ -425,7 +425,7 @@ public class JdbcJobRepository implements JobRepository {
                 )
                 .param(
                         "currentTime",
-                        toOffsetDateTime(currentTime)
+                       currentTime.atOffset(ZoneOffset.UTC)
                 )
                 .param(
                         "batchSize",
@@ -510,13 +510,11 @@ public class JdbcJobRepository implements JobRepository {
                 )
                 .param(
                         "currentTime",
-                        toOffsetDateTime(currentTime)
+                       currentTime.atOffset(ZoneOffset.UTC)
                 )
                 .param(
                         "leaseExpiresAt",
-                        toOffsetDateTime(
-                                leaseExpiresAt
-                        )
+                       leaseExpiresAt.atOffset(ZoneOffset.UTC)
                 )
                 .param(
                         "batchSize",
@@ -627,8 +625,14 @@ public class JdbcJobRepository implements JobRepository {
                         """
                 )
                 .param("retryWaitStatus", JobStatus.RETRY_WAIT.name())
-                .param("retryAt", retryAt)
-                .param("updatedAt", updatedAt)
+                .param(
+                        "retryAt",
+                        toOffsetDateTime(retryAt)
+                )
+                .param(
+                        "updatedAt",
+                        toOffsetDateTime(updatedAt)
+                )
                 .param("jobId", jobId)
                 .param("runningStatus", JobStatus.RUNNING.name())
                 .param("workerId", workerId)
@@ -679,7 +683,7 @@ public class JdbcJobRepository implements JobRepository {
                 )
                 .param(
                         "recoveryTime",
-                        recoveryTime
+                        recoveryTime.atOffset(ZoneOffset.UTC)
                 )
                 .param(
                         "batchSize",
@@ -741,15 +745,15 @@ public class JdbcJobRepository implements JobRepository {
                 )
                 .param(
                         "availableAt",
-                        availableAt
+                        toOffsetDateTime(availableAt)
                 )
                 .param(
                         "recoveryTime",
-                        recoveryTime
+                        toOffsetDateTime(recoveryTime)
                 )
                 .param(
                         "completedAt",
-                        completedAt
+                        toOffsetDateTime(completedAt)
                 )
                 .param(
                         "jobId",

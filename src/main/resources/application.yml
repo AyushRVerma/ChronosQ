@@ -40,7 +40,7 @@ chronosq:
     batch-size: ${CHRONOSQ_SCHEDULER_BATCH_SIZE:100}
 
   worker:
-    enabled: ${CHRONOSQ_WORKER_ENABLED:false}
+    enabled: ${CHRONOSQ_WORKER_ENABLED:true}
     worker-id: ${CHRONOSQ_WORKER_ID:${random.uuid}}
     instance-name: ${CHRONOSQ_INSTANCE_NAME:local-chronosq}
     queue-name: ${CHRONOSQ_WORKER_QUEUE:default}

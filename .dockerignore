@@ -1,0 +1,50 @@
+# Maven-generated build files
+target/
+
+# Git files and history
+.git/
+.gitignore
+
+# IntelliJ IDEA files
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Visual Studio Code files
+.vscode/
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+
+# Application logs
+logs/
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# Local environment and secret files
+.env
+.env.*
+!.env.example
+
+# Local database or data directories
+data/
+postgres-data/
+
+# Test and coverage reports
+coverage/
+test-results/
+surefire-reports/
+
+# Project documentation that is unnecessary during image building
+docs/
+
+# Docker Compose override files used only locally
+compose.override.yml
+docker-compose.override.yml

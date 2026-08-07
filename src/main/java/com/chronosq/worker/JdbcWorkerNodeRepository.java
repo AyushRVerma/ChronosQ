@@ -190,7 +190,7 @@ public class JdbcWorkerNodeRepository
                 .param("workerId", workerId)
                 .param("instanceName", instanceName)
                 .param("activeStatus", WorkerStatus.ACTIVE.name())
-                .param("heartbeatTime", heartbeatTime)
+                .param("heartbeatTime", toOffsetDateTime(heartbeatTime))
                 .update();
     }
 }

@@ -1,0 +1,72 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-chronosq}
+      POSTGRES_USER: ${POSTGRES_USER:-chronosq}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be provided}
+
+    volumes:
+      - chronosq-postgres-data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-chronosq} -d ${POSTGRES_DB:-chronosq}"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+    networks:
+      - chronosq-network
+
+  chronosq:
+    image: chronosq:1.0.0
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+
+      CHRONOSQ_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-chronosq}
+      CHRONOSQ_DB_USERNAME: ${POSTGRES_USER:-chronosq}
+      CHRONOSQ_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be provided}
+      CHRONOSQ_DB_POOL_SIZE: ${CHRONOSQ_DB_POOL_SIZE:-20}
+
+      SERVER_PORT: 8080
+
+    ports:
+      - "${CHRONOSQ_HTTP_PORT:-8080}:8080"
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O - http://localhost:8080/actuator/health/readiness || exit 1"
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+    networks:
+      - chronosq-network
+
+volumes:
+  chronosq-postgres-data:
+
+networks:
+  chronosq-network:
+    driver: bridge

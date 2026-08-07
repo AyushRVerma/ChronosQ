@@ -245,9 +245,9 @@ public class JdbcJobExecutionRepository
                 )
                 .param(
                         "finishedAt",
-                        toOffsetDateTime(
-                                result.finishedAt()
-                        )
+
+                                result.finishedAt().atOffset(ZoneOffset.UTC)
+
                 )
                 .param(
                         "durationMs",
@@ -291,7 +291,7 @@ public class JdbcJobExecutionRepository
                 )
                 .param(
                         "recoveredAt",
-                        recoveredAt
+                        recoveredAt.atOffset(ZoneOffset.UTC)
                 )
                 .param(
                         "errorType",
