@@ -1,6 +1,46 @@
 # ChronosQ — Persistent Distributed Job Scheduler
 
+<div align="center">
+
+![Java](https://img.shields.io/badge/Java-21+-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.0+-6DB33F?style=for-the-badge&logo=spring-boot&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17+-316192?style=for-the-badge&logo=postgresql&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Supported-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
+
+</div>
+
 ChronosQ is a persistent, distributed background-job processing platform built with Java, Spring Boot and PostgreSQL.
+
+## Table of Contents
+
+- [Key Features](#key-features)
+- [Technology Stack](#technology-stack)
+- [System Architecture](#system-architecture)
+- [How ChronosQ Works](#how-chronosq-works)
+- [Job State Machine](#job-state-machine)
+- [Supported Job Handlers](#supported-job-handlers)
+- [REST API](#rest-api)
+- [Database Design](#database-design)
+- [Concurrency and Duplicate Protection](#concurrency-and-duplicate-protection)
+- [Delivery Guarantee](#delivery-guarantee)
+- [Retry Policy](#retry-policy)
+- [Thread-Pool Backpressure](#thread-pool-backpressure)
+- [Configuration](#configuration)
+- [Local Development](#local-development)
+- [Testing](#testing)
+- [Observability](#observability)
+- [Health Checks](#health-checks)
+- [Graceful Shutdown](#graceful-shutdown)
+- [Security and Production Hardening](#security-and-production-hardening)
+- [Flyway Migrations](#flyway-migrations)
+- [Package Structure](#package-structure)
+- [Implementation Phases](#implementation-phases)
+- [Design Decisions](#design-decisions)
+- [Production Readiness Checklist](#production-readiness-checklist)
+- [Future Extensions](#future-extensions)
+- [Learning Outcomes](#learning-outcomes)
+- [Author](#author)
 
 It accepts jobs through REST APIs, stores them durably, schedules them for future execution and safely distributes them across multiple worker instances. ChronosQ supports priority queues, retries, worker leases, crash recovery, execution history, dead-letter handling and production monitoring.
 
@@ -561,8 +601,8 @@ spring:
 
   datasource:
     url: ${CHRONOSQ_DB_URL:jdbc:postgresql://localhost:5433/chronosq}
-    username: ${CHRONOSQ_DB_USERNAME:chronosq}
-    password: ${CHRONOSQ_DB_PASSWORD:chronosq}
+    username: ${CHRONOSQ_DB_USERNAME:}
+    password: ${CHRONOSQ_DB_PASSWORD:}
 
     hikari:
       maximum-pool-size: ${CHRONOSQ_DB_POOL_SIZE:10}
@@ -1007,5 +1047,7 @@ ChronosQ demonstrates practical knowledge of:
 ---
 
 ## Author
+
+**Ayush Raj Verma**
 
 Built as a hands-on distributed-systems project using Java, Spring Boot and PostgreSQL.
