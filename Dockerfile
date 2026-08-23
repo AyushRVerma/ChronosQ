@@ -1,5 +1,5 @@
 # ---------- Stage 1: Build the application ----------
-FROM eclipse-temurin:21-jdk-alpine AS builder
+FROM eclipse-temurin:24-jdk-alpine AS builder
 
 WORKDIR /workspace
 
@@ -20,7 +20,7 @@ RUN ./mvnw clean package -DskipTests -B
 
 
 # ---------- Stage 2: Run the application ----------
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:24-jre-alpine
 
 WORKDIR /app
 
