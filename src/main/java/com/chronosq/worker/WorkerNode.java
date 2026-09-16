@@ -56,7 +56,8 @@ public record WorkerNode(
         }
     }
 
-    public boolean isActive() {
+    public boolean isActive()
+    {
         return status == WorkerStatus.ACTIVE;
     }
 

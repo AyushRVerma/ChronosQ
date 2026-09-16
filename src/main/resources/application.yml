@@ -76,5 +76,24 @@ chronosq:
     endpoints:
       web:
         exposure:
-          include: health,info,prometheus
+          include: health, info, prometheus
 
+  security:
+    oauth-client:
+      client-id: postman-client
+      client-secret: ${CHRONOSQ_OAUTH_CLIENT_SECRET}
+      scopes:
+        - jobs.submit
+        - jobs.read
+        - jobs.cancel
+        - metrics.read
+      access-token-time-to-live: 10m
+
+    jwt:
+      key-store-location: ${CHRONOSQ_JWT_KEYSTORE_LOCATION:file:./secrets/chronosq-jwt.p12}
+      key-store-password: ${CHRONOSQ_JWT_KEYSTORE_PASSWORD}
+      key-alias: ${CHRONOSQ_JWT_KEY_ALIAS:chronosq-jwt}
+      private-key-password: ${CHRONOSQ_JWT_KEYSTORE_PASSWORD}
+
+      issuer: ${CHRONOSQ_JWT_ISSUER:http://localhost:8080}
+      audience: ${CHRONOSQ_JWT_AUDIENCE:chronosq-api}
