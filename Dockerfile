@@ -38,9 +38,4 @@ USER chronosq
 
 EXPOSE 8080
 
-ENTRYPOINT [
-    "java",
-    "-XX:MaxRAMPercentage=75.0",
-    "-jar",
-    "/app/chronosq.jar"
-]
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-jar", "/app/chronosq.jar"]
