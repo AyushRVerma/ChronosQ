@@ -8,6 +8,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import com.chronosq.security.TestJwtKeyConfiguration;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -26,6 +27,7 @@ import com.chronosq.job.repository.JobRepository;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.annotation.DirtiesContext;
 
 import org.springframework.beans.factory.annotation
         .Autowired;
@@ -37,6 +39,7 @@ import org.springframework.boot.testcontainers
         .service.connection.ServiceConnection;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.context.annotation.Import;
 
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -45,6 +48,8 @@ import org.testcontainers.postgresql
         .PostgreSQLContainer;
 
 @Testcontainers
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@Import(TestJwtKeyConfiguration.class)
 @SpringBootTest(
         properties = {
                 "chronosq.scheduler.enabled=false",
@@ -333,7 +338,8 @@ class JdbcJobClaimIntegrationTest {
         List<ClaimedJob> results =
                 jobClaimService
                         .claimAvailableJobs(
-                                currentTime
+                                currentTime,
+                                10
                         );
 
         assertThat(results)
@@ -373,6 +379,42 @@ class JdbcJobClaimIntegrationTest {
 
         assertThat(storedExecutions)
                 .containsExactly(execution);
+    }
+
+    @Test
+    void rejectedDispatchReturnsUnstartedJobWithoutUsingAnAttempt() {
+        Instant currentTime = Instant.parse("2026-01-01T10:00:00Z");
+        Job readyJob = createReadyJob(
+                "default", 10, currentTime, currentTime.minusSeconds(60));
+        jobRepository.save(readyJob);
+
+        ClaimedJob claimed = jobClaimService
+                .claimAvailableJobs(currentTime, 1).get(0);
+        Instant capturedDueTime = jdbcClient.sql("""
+                        SELECT scheduled_available_at
+                        FROM job_executions WHERE id = :executionId
+                        """)
+                .param("executionId", claimed.execution().id())
+                .query((rs, row) -> rs.getObject("scheduled_available_at",
+                        java.time.OffsetDateTime.class).toInstant())
+                .single();
+        assertThat(capturedDueTime).isEqualTo(readyJob.availableAt());
+
+        jobClaimService.releaseUnstartedJob(
+                claimed, currentTime.plusMillis(1));
+
+        Job released = jobRepository.findById(readyJob.id()).orElseThrow();
+        assertThat(released.status()).isEqualTo(JobStatus.READY);
+        assertThat(released.attemptCount()).isZero();
+        assertThat(released.lockedBy()).isNull();
+        assertThat(released.leaseExpiresAt()).isNull();
+        assertThat(jobExecutionRepository.findByJobId(readyJob.id()))
+                .isEmpty();
+
+        ClaimedJob claimedAgain = jobClaimService
+                .claimAvailableJobs(currentTime.plusMillis(2), 1).get(0);
+        assertThat(claimedAgain.job().attemptCount()).isEqualTo(1);
+        assertThat(claimedAgain.execution().attemptNumber()).isEqualTo(1);
     }
 
     @Test

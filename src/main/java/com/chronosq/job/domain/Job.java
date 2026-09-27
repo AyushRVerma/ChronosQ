@@ -1,8 +1,11 @@
 package com.chronosq.job.domain;
 
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Objects;
 import java.util.UUID;
+
+import org.springframework.scheduling.support.CronExpression;
 
 // Job is the representation of one row in the PostgreSQL jobs table
 // A record is a special Java class designed purely to hold data It alr gives you const,getter,equals,hashcode,toString,Immutable
@@ -23,6 +26,9 @@ public record Job(
 
         ScheduleType scheduleType,
         Long intervalSeconds,
+        String cronExpression,
+        String cronTimeZone,
+        MissedExecutionPolicy missedExecutionPolicy,
         int attemptCount,
         int maxAttempts,
 
@@ -111,11 +117,74 @@ public record Job(
             );
         }
 
+        if (scheduleType == ScheduleType.CRON) {
+            if (cronExpression == null || cronExpression.isBlank()
+                    || !CronExpression.isValidExpression(cronExpression)) {
+                throw new IllegalArgumentException(
+                        "Cron jobs require a valid cron expression"
+                );
+            }
+            if (cronTimeZone == null || cronTimeZone.isBlank()) {
+                throw new IllegalArgumentException(
+                        "Cron jobs require a time zone"
+                );
+            }
+            try {
+                ZoneId.of(cronTimeZone);
+            } catch (RuntimeException exception) {
+                throw new IllegalArgumentException(
+                        "Cron job time zone is invalid: " + cronTimeZone,
+                        exception
+                );
+            }
+            Objects.requireNonNull(
+                    missedExecutionPolicy,
+                    "Cron jobs require a missed-execution policy"
+            );
+        } else if (cronExpression != null
+                || cronTimeZone != null
+                || missedExecutionPolicy != null) {
+            throw new IllegalArgumentException(
+                    "Only cron jobs may have cron configuration"
+            );
+        }
+
         if ((lockedBy == null) != (leaseExpiresAt == null)) {
             throw new IllegalArgumentException(
                     "Job owner and lease expiry must both be set or both be null"
             );
         }
+    }
+
+    public Job(
+            UUID id,
+            String queueName,
+            String jobType,
+            String payload,
+            JobStatus status,
+            int priority,
+            Instant availableAt,
+            ScheduleType scheduleType,
+            Long intervalSeconds,
+            int attemptCount,
+            int maxAttempts,
+            String idempotencyKey,
+            String lockedBy,
+            Instant leaseExpiresAt,
+            int timeoutSeconds,
+            Instant createdAt,
+            Instant updatedAt,
+            Instant completedAt,
+            long version
+    ) {
+        this(
+                id, queueName, jobType, payload, status, priority,
+                availableAt, scheduleType, intervalSeconds,
+                null, null, null,
+                attemptCount, maxAttempts, idempotencyKey,
+                lockedBy, leaseExpiresAt, timeoutSeconds,
+                createdAt, updatedAt, completedAt, version
+        );
     }
 
     //helper methods

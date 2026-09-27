@@ -25,4 +25,10 @@ public interface JobExecutionRepository {
             Instant recoveredAt
     );
 
+    boolean deleteUnstartedExecution(
+            UUID executionId,
+            UUID jobId,
+            String workerId
+    );
+
 }

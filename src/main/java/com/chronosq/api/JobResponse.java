@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import com.chronosq.job.domain.JobStatus;
+import com.chronosq.job.domain.MissedExecutionPolicy;
 import com.chronosq.job.domain.ScheduleType;
 
 import tools.jackson.databind.JsonNode;
@@ -32,6 +33,12 @@ public record JobResponse(
         ScheduleType scheduleType,
 
         Long intervalSeconds,
+
+        String cronExpression,
+
+        String cronTimeZone,
+
+        MissedExecutionPolicy missedExecutionPolicy,
 
         int attemptCount,
 

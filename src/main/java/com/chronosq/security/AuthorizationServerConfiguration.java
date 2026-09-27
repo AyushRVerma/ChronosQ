@@ -51,6 +51,7 @@ import org.springframework.security.web.SecurityFilterChain;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({
         OAuthClientProperties.class,
+        DashboardOAuthClientProperties.class,
         JwtKeyStoreProperties.class
 })
 public class AuthorizationServerConfiguration {
@@ -131,8 +132,15 @@ public class AuthorizationServerConfiguration {
     @Bean
     public RegisteredClientRepository registeredClientRepository(
             OAuthClientProperties properties,
+            DashboardOAuthClientProperties dashboardProperties,
             PasswordEncoder passwordEncoder
     ) {
+        if (properties.clientId().equals(dashboardProperties.clientId())) {
+            throw new IllegalArgumentException("Dashboard and operator OAuth client IDs must differ");
+        }
+        if (properties.clientSecret().equals(dashboardProperties.clientSecret())) {
+            throw new IllegalArgumentException("Dashboard and operator OAuth secrets must differ");
+        }
 
         /*
          * Create a deterministic internal registration ID.
@@ -224,9 +232,20 @@ public class AuthorizationServerConfiguration {
         RegisteredClient registeredClient =
                 clientBuilder.build();
 
-        return new InMemoryRegisteredClientRepository(
-                registeredClient
-        );
+        RegisteredClient dashboardClient = RegisteredClient
+                .withId(UUID.nameUUIDFromBytes(("chronosq-dashboard-client:"
+                        + dashboardProperties.clientId()).getBytes(StandardCharsets.UTF_8)).toString())
+                .clientId(dashboardProperties.clientId())
+                .clientSecret(passwordEncoder.encode(dashboardProperties.clientSecret()))
+                .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+                .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
+                .scope("metrics.read")
+                .tokenSettings(TokenSettings.builder()
+                        .accessTokenTimeToLive(properties.accessTokenTimeToLive())
+                        .build())
+                .build();
+
+        return new InMemoryRegisteredClientRepository(registeredClient, dashboardClient);
     }
 
 

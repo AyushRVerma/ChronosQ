@@ -14,6 +14,8 @@ public interface JobRepository {
 
     Optional<Job> findById(UUID jobId);
 
+    Optional<Job> findByIdForUpdate(UUID jobId);
+
     Optional<Job> findByIdempotencyKey(String idempotencyKey);
 
     boolean updateStatus(
@@ -28,6 +30,24 @@ public interface JobRepository {
     int promoteDueJobs(
             Instant currentTime,
             int batchSize
+    );
+
+    List<Job> findDueSkippedCronJobs(
+            Instant currentTime,
+            int batchSize
+    );
+
+    boolean rescheduleSkippedCronJob(
+            UUID jobId,
+            Instant nextAvailableAt,
+            Instant updatedAt,
+            long expectedVersion
+    );
+
+    boolean promoteScheduledJob(
+            UUID jobId,
+            Instant updatedAt,
+            long expectedVersion
     );
 
     List<Job> claimReadyJobs(
@@ -67,6 +87,19 @@ public interface JobRepository {
             Instant availableAt,
             Instant recoveryTime,
             long expectedVersion
+    );
+
+    boolean releaseUnstartedJob(
+            UUID jobId,
+            String workerId,
+            Instant releasedAt,
+            long expectedVersion
+    );
+
+    int extendLeasesForWorker(
+            String workerId,
+            Instant heartbeatTime,
+            Instant leaseExpiresAt
     );
 
 

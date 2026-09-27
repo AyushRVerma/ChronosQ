@@ -58,10 +58,10 @@ chronosq:
 
   retry:
     enabled: ${CHRONOSQ_RETRY_ENABLED:true}
-    initial-delay-ms: ${CHRONOSQ_RETRY_INITIAL_DELAY_MS:1000}
+    initial-delay-ms: ${CHRONOSQ_RETRY_INITIAL_DELAY_MS:8000}
     maximum-delay-ms: ${CHRONOSQ_RETRY_MAXIMUM_DELAY_MS:300000}
     multiplier: ${CHRONOSQ_RETRY_MULTIPLIER:2.0}
-    jitter-factor: ${CHRONOSQ_RETRY_JITTER_FACTOR:0.2}
+    jitter-factor: ${CHRONOSQ_RETRY_JITTER_FACTOR:0}
 
   recovery:
     enabled: ${CHRONOSQ_RECOVERY_ENABLED:true}
@@ -80,14 +80,18 @@ chronosq:
 
   security:
     oauth-client:
-      client-id: postman-client
+      client-id: ${CHRONOSQ_OAUTH_CLIENT_ID:postman-client}
       client-secret: ${CHRONOSQ_OAUTH_CLIENT_SECRET}
       scopes:
         - jobs.submit
         - jobs.read
         - jobs.cancel
-        - metrics.read
+        - jobs.requeue
       access-token-time-to-live: 10m
+
+    dashboard-client:
+      client-id: ${CHRONOSQ_DASHBOARD_CLIENT_ID:dashboard-client}
+      client-secret: ${CHRONOSQ_DASHBOARD_CLIENT_SECRET}
 
     jwt:
       key-store-location: ${CHRONOSQ_JWT_KEYSTORE_LOCATION:file:./secrets/chronosq-jwt.p12}

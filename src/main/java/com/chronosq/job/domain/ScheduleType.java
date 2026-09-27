@@ -4,5 +4,6 @@ public enum ScheduleType {
 
     IMMEDIATE,
     ONE_TIME,
-    FIXED_INTERVAL
+    FIXED_INTERVAL,
+    CRON
 }

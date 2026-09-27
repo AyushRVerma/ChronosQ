@@ -35,4 +35,10 @@ public final class JobStateMachine {
             );
         }
     }
+
+    // Requeue creates a new job; the terminal source record is never reopened.
+    public static boolean canRequeue(JobStatus status) {
+        return Objects.requireNonNull(status, "Job status must not be null")
+                == JobStatus.DEAD_LETTERED;
+    }
 }

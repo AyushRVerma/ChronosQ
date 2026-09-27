@@ -3,10 +3,7 @@ package com.chronosq.handler;
 import java.net.URI;
 import java.util.Objects;
 
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 import com.chronosq.job.domain.Job;
 
@@ -22,22 +19,27 @@ public class HttpWebhookJobHandler implements JobHandler {
 
     public static final String JOB_TYPE = "HTTP_WEBHOOK";
 
-    private final RestClient restClient;
+    private final PinnedWebhookClient webhookClient;
     private final ObjectMapper objectMapper;
+    private final WebhookTargetValidator targetValidator;
 
     public HttpWebhookJobHandler(
-            @Qualifier("webhookRestClient")
-            RestClient restClient,
+            PinnedWebhookClient webhookClient,
 
-            ObjectMapper objectMapper ) {
+            ObjectMapper objectMapper,
+            WebhookTargetValidator targetValidator ) {
 
-        this.restClient = Objects.requireNonNull(
-                restClient,
-                "restClient must not be null" );
+        this.webhookClient = Objects.requireNonNull(
+                webhookClient,
+                "webhookClient must not be null" );
 
         this.objectMapper = Objects.requireNonNull(
                 objectMapper,
                 "objectMapper must not be null" );
+        this.targetValidator = Objects.requireNonNull(
+                targetValidator,
+                "targetValidator must not be null"
+        );
     }
 
     @Override
@@ -64,35 +66,11 @@ public class HttpWebhookJobHandler implements JobHandler {
                         job.payload(),
                         HttpWebhookPayload.class
                 );
+        URI target = URI.create(payload.url());
+        WebhookTargetValidator.ValidatedWebhookTarget validatedTarget =
+                targetValidator.validate(target);
 
-        //B: Build HTTP Request
-        RestClient.RequestBodySpec request =
-                restClient
-                        .method(payload.method()) //Build HTTP Request
-                        .uri(URI.create(payload.url())) // Target URL
-                        .headers(httpHeaders ->
-                                payload.headers().forEach(
-                                        httpHeaders::set  // Add custom headers
-                                )
-                        );
-
-        //C: Attach JSON Request Body
-        //If the payload contains a JSON body object, sets Content-Type: application/json and attaches the body.
-        if (payload.body() != null
-                && !payload.body().isNull()) {
-
-            request
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(payload.body());
-        }
-
-        //D: Execute Outgoing HTTP Call & Capture Status Code
-        int statusCode = request.exchange(
-                (httpRequest, httpResponse) ->
-                        httpResponse
-                                .getStatusCode()
-                                .value()
-        );
+        int statusCode = webhookClient.exchange(validatedTarget, payload);
 
         //E: Validate HTTP Status Code
         if (statusCode < 200 || statusCode >= 300) {

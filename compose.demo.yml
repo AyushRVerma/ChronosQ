@@ -6,6 +6,16 @@ x-chronosq-environment: &chronosq-environment
   CHRONOSQ_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be provided}
   CHRONOSQ_DB_POOL_SIZE: ${CHRONOSQ_DB_POOL_SIZE:-20}
 
+  CHRONOSQ_OAUTH_CLIENT_ID: ${CHRONOSQ_OAUTH_CLIENT_ID:-postman-client}
+  CHRONOSQ_OAUTH_CLIENT_SECRET: ${CHRONOSQ_OAUTH_CLIENT_SECRET:?CHRONOSQ_OAUTH_CLIENT_SECRET must be provided}
+  CHRONOSQ_DASHBOARD_CLIENT_ID: ${CHRONOSQ_DASHBOARD_CLIENT_ID:-dashboard-client}
+  CHRONOSQ_DASHBOARD_CLIENT_SECRET: ${CHRONOSQ_DASHBOARD_CLIENT_SECRET:?CHRONOSQ_DASHBOARD_CLIENT_SECRET must be provided}
+  CHRONOSQ_JWT_KEYSTORE_LOCATION: file:/run/secrets/chronosq-jwt.p12
+  CHRONOSQ_JWT_KEYSTORE_PASSWORD: ${CHRONOSQ_JWT_KEYSTORE_PASSWORD:?CHRONOSQ_JWT_KEYSTORE_PASSWORD must be provided}
+  CHRONOSQ_JWT_KEY_ALIAS: ${CHRONOSQ_JWT_KEY_ALIAS:-chronosq-jwt}
+  CHRONOSQ_JWT_ISSUER: ${CHRONOSQ_JWT_ISSUER:-http://localhost:8080}
+  CHRONOSQ_JWT_AUDIENCE: ${CHRONOSQ_JWT_AUDIENCE:-chronosq-api}
+
   SERVER_PORT: 8080
 
 
@@ -32,6 +42,9 @@ x-chronosq-service: &chronosq-service
     timeout: 5s
     retries: 5
     start_period: 40s
+
+  volumes:
+    - ./secrets/chronosq-jwt.p12:/run/secrets/chronosq-jwt.p12:ro
 
   networks:
     - chronosq-demo-network

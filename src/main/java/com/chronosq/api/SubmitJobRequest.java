@@ -1,7 +1,9 @@
 package com.chronosq.api;
 
 import java.time.Instant;
+import java.time.ZoneId;
 
+import com.chronosq.job.domain.MissedExecutionPolicy;
 import com.chronosq.job.domain.ScheduleType;
 
 import jakarta.validation.constraints.AssertTrue;
@@ -13,6 +15,7 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 import tools.jackson.databind.JsonNode;
+import org.springframework.scheduling.support.CronExpression;
 
 
 // This is the DTO used when a client makes an HTTP POST request to submit a new job to ChronosQ.
@@ -57,6 +60,14 @@ public record SubmitJobRequest(
         )
         Long intervalSeconds,
 
+        @Size(max = 200, message = "cronExpression must not exceed 200 characters")
+        String cronExpression,
+
+        @Size(max = 100, message = "cronTimeZone must not exceed 100 characters")
+        String cronTimeZone,
+
+        MissedExecutionPolicy missedExecutionPolicy,
+
         @Min(
                 value = 1,
                 message = "maxAttempts must be at least 1"
@@ -85,13 +96,21 @@ public record SubmitJobRequest(
 
 ) {
 
+    public SubmitJobRequest {
+        // Jackson represents an explicit JSON null as NullNode, which
+        // @NotNull would otherwise accept as a non-null Java object.
+        if (payload != null && payload.isNull()) {
+            payload = null;
+        }
+    }
+
   // Spring's @Valid processor looks for boolean methods annotated with @AssertTrue. If the method returns false, Spring rejects the HTTP request with a validation error message.
   //jakarta.validation.constraints package) used in Spring Boot to ensure that a specific boolean field or
   // the return value of a method evaluates to true. If the condition is false, Spring's validation framework blocks the request and triggers a validation error
     @AssertTrue(
             message = """
                     ONE_TIME requires availableAt, and \
-                    FIXED_INTERVAL requires intervalSeconds
+                    FIXED_INTERVAL requires intervalSeconds, and CRON requires a valid expression, time zone and missed-execution policy
                     """
     )
     public boolean isScheduleConfigurationValid() {
@@ -103,16 +122,61 @@ public record SubmitJobRequest(
         return switch (scheduleType) {
 
             case IMMEDIATE ->
-                    intervalSeconds == null;
+                    intervalSeconds == null && noCronConfiguration();
 
             case ONE_TIME ->
                     availableAt != null
-                            && intervalSeconds == null;
+                            && intervalSeconds == null
+                            && noCronConfiguration();
 
             case FIXED_INTERVAL ->
                     intervalSeconds != null
-                            && intervalSeconds > 0;
+                            && intervalSeconds > 0
+                            && noCronConfiguration();
+
+            case CRON -> isValidCronConfiguration();
         };
+    }
+
+    private boolean noCronConfiguration() {
+        return cronExpression == null
+                && cronTimeZone == null
+                && missedExecutionPolicy == null;
+    }
+
+    private boolean isValidCronConfiguration() {
+        if (availableAt != null || intervalSeconds != null
+                || cronExpression == null || cronExpression.isBlank()
+                || cronTimeZone == null || cronTimeZone.isBlank()
+                || missedExecutionPolicy == null
+                || !CronExpression.isValidExpression(cronExpression)) {
+            return false;
+        }
+        try {
+            ZoneId.of(cronTimeZone);
+            return true;
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    public SubmitJobRequest(
+            String queueName,
+            String jobType,
+            JsonNode payload,
+            Integer priority,
+            Instant availableAt,
+            ScheduleType scheduleType,
+            Long intervalSeconds,
+            Integer maxAttempts,
+            Integer timeoutSeconds,
+            String idempotencyKey
+    ) {
+        this(
+                queueName, jobType, payload, priority, availableAt,
+                scheduleType, intervalSeconds, null, null, null,
+                maxAttempts, timeoutSeconds, idempotencyKey
+        );
     }
 
     //Helper Methods

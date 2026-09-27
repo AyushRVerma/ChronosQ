@@ -56,7 +56,8 @@ class WorkerPollerTest {
     void shouldClaimAndDispatchAvailableJobs() {
         ClaimedJob claimedJob = createClaimedJob();
 
-        when(jobClaimService.claimAvailableJobs(CURRENT_TIME))
+        when(jobExecutionDispatcher.availableCapacity()).thenReturn(10);
+        when(jobClaimService.claimAvailableJobs(CURRENT_TIME, 10))
                 .thenReturn(List.of(claimedJob));
 
         when(jobExecutionDispatcher.dispatch(List.of(claimedJob)))
@@ -65,7 +66,7 @@ class WorkerPollerTest {
         workerPoller.pollAndDispatch();
 
         verify(jobClaimService)
-                .claimAvailableJobs(CURRENT_TIME);
+                .claimAvailableJobs(CURRENT_TIME, 10);
 
         verify(jobExecutionDispatcher)
                 .dispatch(List.of(claimedJob));
@@ -73,7 +74,8 @@ class WorkerPollerTest {
 
     @Test
     void shouldPassEmptyListToDispatcherWhenNoJobsAreAvailable() {
-        when(jobClaimService.claimAvailableJobs(CURRENT_TIME))
+        when(jobExecutionDispatcher.availableCapacity()).thenReturn(10);
+        when(jobClaimService.claimAvailableJobs(CURRENT_TIME, 10))
                 .thenReturn(List.of());
 
         when(jobExecutionDispatcher.dispatch(List.of()))
@@ -87,7 +89,8 @@ class WorkerPollerTest {
 
     @Test
     void shouldNotCrashSchedulerWhenClaimingFails() {
-        when(jobClaimService.claimAvailableJobs(CURRENT_TIME))
+        when(jobExecutionDispatcher.availableCapacity()).thenReturn(10);
+        when(jobClaimService.claimAvailableJobs(CURRENT_TIME, 10))
                 .thenThrow(
                         new IllegalStateException(
                                 "Database temporarily unavailable"
@@ -97,6 +100,17 @@ class WorkerPollerTest {
         assertThatCode(workerPoller::pollAndDispatch)
                 .doesNotThrowAnyException();
 
+        verify(jobExecutionDispatcher, never())
+                .dispatch(org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
+    void shouldNotClaimWhenExecutionPoolIsFull() {
+        workerPoller.pollAndDispatch();
+
+        verify(jobClaimService, never()).claimAvailableJobs(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyInt());
         verify(jobExecutionDispatcher, never())
                 .dispatch(org.mockito.ArgumentMatchers.anyList());
     }

@@ -5,16 +5,11 @@ import com.nimbusds.jose.jwk.RSAKey;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
 import org.springframework.core.annotation.Order;
-
 import org.springframework.http.HttpMethod;
-
-import org.springframework.security.config.Customizer;
 
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-
 import org.springframework.security.config.http.SessionCreationPolicy;
 
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
@@ -34,9 +29,9 @@ import org.springframework.security.web.SecurityFilterChain;
 /*
  * Configures ChronosQ as an OAuth2 Resource Server.
  *
- * The Authorization Server from Step 6 creates JWTs.
- * This Resource Server validates those JWTs before
- * allowing access to the ChronosQ REST APIs.
+ * The Authorization Server creates signed JWT access tokens.
+ * This Resource Server validates those tokens before allowing
+ * clients to access the ChronosQ REST APIs.
  */
 @Configuration(proxyBeanMethods = false)
 public class ResourceServerConfiguration {
@@ -44,33 +39,35 @@ public class ResourceServerConfiguration {
     /*
      * This is the second Spring Security filter chain.
      *
-     * @Order(1) belongs to AuthorizationServerConfiguration.
+     * @Order(1) handles OAuth2 Authorization Server endpoints.
      * @Order(2) handles the remaining ChronosQ endpoints.
      */
     @Bean
     @Order(2)
-    public SecurityFilterChain resourceServerSecurityFilterChain(HttpSecurity http, JwtDecoder jwtDecoder) throws Exception {
+    public SecurityFilterChain resourceServerSecurityFilterChain(
+            HttpSecurity http,
+            JwtDecoder jwtDecoder,
+            JsonAuthenticationEntryPoint authenticationEntryPoint,
+            JsonAccessDeniedHandler accessDeniedHandler
+    ) throws Exception {
 
         /*
+         * ChronosQ uses JWT bearer tokens instead of
+         * browser cookies for authentication.
          *
-         * ChronosQ uses bearer tokens and does not use a
-         * browser login session for its REST APIs.
-         *
-         * CSRF protection mainly protects browser sessions
-         * that authenticate through cookies.
-         *
-         * The OAuth2 Authorization Server endpoints are
-         * handled by the separate @Order(1) filter chain.
+         * Therefore, traditional browser-based CSRF
+         * protection is not required for these APIs.
          */
-
         http.csrf(
                 AbstractHttpConfigurer::disable
         );
 
         /*
-         * Do not create or store an HTTP login session.
+         * ChronosQ does not create HTTP login sessions.
          *
-         * Every API request must carry its own bearer token.
+         * Every request must contain its own access token:
+         *
+         * Authorization: Bearer <access-token>
          */
         http.sessionManagement(
                 session -> session.sessionCreationPolicy(
@@ -79,13 +76,13 @@ public class ResourceServerConfiguration {
         );
 
         /*
-         * Define which scope is required for every endpoint.
+         * Define the permission required by each endpoint.
          *
-         * Spring converts:
+         * An OAuth scope such as:
          *
          * jobs.submit
          *
-         * into:
+         * becomes the Spring Security authority:
          *
          * SCOPE_jobs.submit
          */
@@ -93,16 +90,16 @@ public class ResourceServerConfiguration {
                 authorization -> authorization
 
                         /*
-                         * Spring Boot uses /error when rendering
-                         * framework-level error responses.
+                         * Spring Boot may forward framework-level
+                         * errors to this endpoint.
                          */
                         .requestMatchers("/error")
                         .permitAll()
 
                         /*
-                         * Kubernetes, Docker and load balancers
-                         * need to check application health without
-                         * obtaining an OAuth access token.
+                         * Health and application information must
+                         * remain accessible to Docker, Kubernetes
+                         * and load balancers.
                          */
                         .requestMatchers(
                                 "/actuator/health",
@@ -112,12 +109,24 @@ public class ResourceServerConfiguration {
                         .permitAll()
 
                         /*
-                         * Prometheus metrics may reveal internal
-                         * application information, so they require
-                         * a dedicated permission.
+                         * Prometheus metrics can reveal internal
+                         * information, so they require permission.
                          */
                         .requestMatchers(
                                 "/actuator/prometheus"
+                        )
+                        .hasAuthority(
+                                "SCOPE_metrics.read"
+                        )
+
+                        /*
+                         * Read the operational dashboard snapshot.
+                         * The response contains aggregate metrics,
+                         * worker health and recent execution details.
+                         */
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/v1/dashboard"
                         )
                         .hasAuthority(
                                 "SCOPE_metrics.read"
@@ -139,9 +148,7 @@ public class ResourceServerConfiguration {
                         /*
                          * Cancel an existing job.
                          *
-                         * POST /api/v1/jobs/{id}/cancel
-                         *
-                         * The * represents one job UUID.
+                         * POST /api/v1/jobs/{jobId}/cancel
                          */
                         .requestMatchers(
                                 HttpMethod.POST,
@@ -150,25 +157,20 @@ public class ResourceServerConfiguration {
                         .hasAuthority(
                                 "SCOPE_jobs.cancel"
                         )
-
-                        /*
-                         * Retry a failed or dead-lettered job.
-                         *
-                         * Retrying is different from submitting
-                         * or cancelling, so it has its own scope.
-                         */
                         .requestMatchers(
                                 HttpMethod.POST,
-                                "/api/v1/jobs/*/retry"
+                                "/api/v1/jobs/*/requeue"
                         )
-                        .hasAuthority(
-                                "SCOPE_jobs.retry"
+                        .hasAuthority("SCOPE_jobs.requeue")
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/v1/jobs/*/requeues"
                         )
-
+                        .hasAuthority("SCOPE_jobs.read")
                         /*
                          * Read the execution history of a job.
                          *
-                         * GET /api/v1/jobs/{id}/executions
+                         * GET /api/v1/jobs/{jobId}/executions
                          */
                         .requestMatchers(
                                 HttpMethod.GET,
@@ -181,7 +183,7 @@ public class ResourceServerConfiguration {
                         /*
                          * Read one job.
                          *
-                         * GET /api/v1/jobs/{id}
+                         * GET /api/v1/jobs/{jobId}
                          */
                         .requestMatchers(
                                 HttpMethod.GET,
@@ -194,22 +196,21 @@ public class ResourceServerConfiguration {
                         /*
                          * Fail closed.
                          *
-                         * If we create a new endpoint but forget
-                         * to define its security rule, Spring denies
-                         * access instead of exposing it accidentally.
+                         * Any endpoint without an explicit security
+                         * rule is denied automatically.
                          */
                         .anyRequest()
                         .denyAll()
         );
 
         /*
-         * Enable OAuth2 Bearer Token authentication.
+         * Enable OAuth2 bearer-token authentication.
          *
-         * Spring's BearerTokenAuthenticationFilter will:
+         * Spring Security will:
          *
          * 1. Read the Authorization header.
-         * 2. Extract the bearer JWT.
-         * 3. Send it to our JwtDecoder.
+         * 2. Extract the JWT bearer token.
+         * 3. Validate it using JwtDecoder.
          * 4. Create an authenticated SecurityContext.
          */
         http.oauth2ResourceServer(
@@ -218,14 +219,34 @@ public class ResourceServerConfiguration {
                 )
         );
 
+        /*
+         * Connect our custom JSON error handlers.
+         *
+         * Missing or invalid JWT:
+         * JsonAuthenticationEntryPoint returns HTTP 401.
+         *
+         * Valid JWT without the required scope:
+         * JsonAccessDeniedHandler returns HTTP 403.
+         */
+        http.exceptionHandling(
+                exceptions -> exceptions
+                        .authenticationEntryPoint(
+                                authenticationEntryPoint
+                        )
+                        .accessDeniedHandler(
+                                accessDeniedHandler
+                        )
+        );
+
         return http.build();
     }
 
 
     /*
-     * Creates the component that validates incoming JWTs.
+     * Creates the component responsible for validating
+     * incoming JWT access tokens.
      *
-     * It verifies:
+     * Validation includes:
      *
      * 1. RSA signature
      * 2. RS256 signing algorithm
@@ -241,22 +262,17 @@ public class ResourceServerConfiguration {
     ) throws JOSEException {
 
         /*
-         * Load the same RSA pair used by the embedded
+         * Load the RSA key pair used by the embedded
          * Authorization Server.
-         *
-         * The Resource Server only gives the public key
-         * to NimbusJwtDecoder.
          */
         RSAKey rsaKey =
                 keyStoreLoader.loadRsaKey();
 
         /*
-         * Create a decoder that trusts only the public key
-         * associated with our persistent signing key.
+         * Only provide the public key to the decoder.
          *
-         * Explicitly restricting the algorithm to RS256
-         * prevents an attacker from selecting an unexpected
-         * signing algorithm.
+         * A public key can validate a signature, but it
+         * cannot create new valid JWT signatures.
          */
         NimbusJwtDecoder decoder =
                 NimbusJwtDecoder
@@ -269,12 +285,12 @@ public class ResourceServerConfiguration {
                         .build();
 
         /*
-         * Default validators check:
+         * These validators check:
          *
-         * - exp: expiration time
-         * - nbf: not-before time
-         * - iss: expected issuer
-         * - JWT type constraints
+         * - token expiration
+         * - not-before time
+         * - expected issuer
+         * - other standard JWT constraints
          */
         OAuth2TokenValidator<Jwt> standardValidators =
                 JwtValidators.createDefaultWithIssuer(
@@ -284,7 +300,7 @@ public class ResourceServerConfiguration {
                 );
 
         /*
-         * Verify that the JWT was specifically created
+         * Confirm that the token was specifically created
          * for the ChronosQ API.
          */
         OAuth2TokenValidator<Jwt> audienceValidator =
@@ -293,8 +309,7 @@ public class ResourceServerConfiguration {
                 );
 
         /*
-         * The JWT is accepted only when every validator
-         * succeeds.
+         * The JWT is accepted only when all validators pass.
          */
         decoder.setJwtValidator(
                 new DelegatingOAuth2TokenValidator<>(

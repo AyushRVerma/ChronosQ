@@ -1,15 +1,19 @@
 package com.chronosq.execution;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.chronosq.metrics.JobExecutionObserver;
 import com.chronosq.metrics.JobLogContext;
@@ -73,7 +77,7 @@ class JobExecutionProcessorTest {
                 clock
         );
 
-        when(jobExecutionObserver.openLogContext(
+        lenient().when(jobExecutionObserver.openLogContext(
                 any(
                         ClaimedJob.class
                 )
@@ -187,6 +191,89 @@ class JobExecutionProcessorTest {
 
         assertThat(result.errorType())
                 .contains("UnknownJobTypeException");
+    }
+
+    @Test
+    void shouldNotMisclassifySuccessfulCompletionFailureAsHandlerFailure()
+            throws Exception {
+        ClaimedJob claimedJob = createClaimedJob();
+        IllegalStateException persistenceFailure =
+                new IllegalStateException("Database unavailable");
+
+        when(jobHandlerRegistry.getRequiredHandler("PRINT_MESSAGE"))
+                .thenReturn(jobHandler);
+        doThrow(persistenceFailure)
+                .when(completionService)
+                .complete(
+                        eq(claimedJob),
+                        any(ExecutionResult.class)
+                );
+
+        assertThatThrownBy(() -> processor.process(claimedJob))
+                .isSameAs(persistenceFailure);
+
+        verify(jobHandler).execute(claimedJob.job());
+        verify(completionService, never()).complete(
+                eq(claimedJob),
+                any(ExecutionResult.class),
+                any(Throwable.class)
+        );
+    }
+
+    @Test
+    void shouldFinalizeTimedOutExecutionOnlyOnce() {
+        ClaimedJob claimedJob = createClaimedJob();
+        AtomicBoolean completionClaimed = new AtomicBoolean();
+
+        assertThat(processor.timeOut(
+                claimedJob,
+                completionClaimed
+        )).isTrue();
+        assertThat(processor.timeOut(
+                claimedJob,
+                completionClaimed
+        )).isFalse();
+
+        ArgumentCaptor<ExecutionResult> resultCaptor =
+                ArgumentCaptor.forClass(ExecutionResult.class);
+        verify(completionService).complete(
+                eq(claimedJob),
+                resultCaptor.capture(),
+                any(JobExecutionTimeoutException.class)
+        );
+        assertThat(resultCaptor.getValue().status())
+                .isEqualTo(ExecutionStatus.TIMED_OUT);
+        assertThat(resultCaptor.getValue().errorType())
+                .isEqualTo("EXECUTION_TIMEOUT");
+    }
+
+    @Test
+    void shouldSeparateTimeoutClaimFromDatabaseFinalization() {
+        ClaimedJob claimedJob = createClaimedJob();
+        AtomicBoolean completionClaimed = new AtomicBoolean();
+        AtomicBoolean interrupted = new AtomicBoolean();
+
+        Runnable finalization = processor.claimTimeout(
+                claimedJob,
+                completionClaimed,
+                () -> interrupted.set(true)
+        );
+
+        assertThat(finalization).isNotNull();
+        assertThat(interrupted).isTrue();
+        verify(completionService, never()).complete(
+                eq(claimedJob),
+                any(ExecutionResult.class),
+                any(Throwable.class)
+        );
+
+        finalization.run();
+
+        verify(completionService).complete(
+                eq(claimedJob),
+                any(ExecutionResult.class),
+                any(JobExecutionTimeoutException.class)
+        );
     }
 
     private ClaimedJob createClaimedJob() {

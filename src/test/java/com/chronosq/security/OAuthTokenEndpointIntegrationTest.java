@@ -77,10 +77,12 @@ import tools.jackson.databind.ObjectMapper;
                 Test-Client-Secret-With-More-Than-32-Characters
                 """,
 
-                """
-                chronosq.security.oauth-client.scopes=\
-                jobs.submit,jobs.read,jobs.cancel,jobs.retry,metrics.read
-                """,
+                "chronosq.security.oauth-client.scopes="
+                        + "jobs.submit,jobs.read,jobs.cancel",
+
+                "chronosq.security.dashboard-client.client-id=test-dashboard-client",
+                "chronosq.security.dashboard-client.client-secret="
+                        + "Distinct-Dashboard-Test-Secret-With-32-Characters",
 
                 """
                 chronosq.security.oauth-client.\
@@ -116,6 +118,7 @@ import tools.jackson.databind.ObjectMapper;
                 chronosq.security.jwt.\
                 audience=chronosq-api
                 """
+
         }
 )
 @AutoConfigureMockMvc
@@ -128,6 +131,10 @@ class OAuthTokenEndpointIntegrationTest {
             """
             Test-Client-Secret-With-More-Than-32-Characters
             """.trim();
+
+    private static final String DASHBOARD_CLIENT_ID = "test-dashboard-client";
+    private static final String DASHBOARD_CLIENT_SECRET =
+            "Distinct-Dashboard-Test-Secret-With-32-Characters";
 
     @Autowired
     private MockMvc mockMvc;
@@ -326,5 +333,40 @@ class OAuthTokenEndpointIntegrationTest {
                         jsonPath("$.error")
                                 .value("invalid_scope")
                 );
+    }
+
+    @Test
+    void dashboardClientCanRequestOnlyMetricsRead() throws Exception {
+        MvcResult metricsResult = mockMvc.perform(post("/oauth2/token")
+                        .with(httpBasic(DASHBOARD_CLIENT_ID, DASHBOARD_CLIENT_SECRET))
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("grant_type", "client_credentials")
+                        .param("scope", "metrics.read"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String metricsToken = objectMapper.readTree(
+                metricsResult.getResponse().getContentAsString())
+                .get("access_token").asText();
+        JwtDecoder decoder = NimbusJwtDecoder.withPublicKey(testRsaKey.toRSAPublicKey())
+                .signatureAlgorithm(SignatureAlgorithm.RS256)
+                .build();
+        assertThat(decoder.decode(metricsToken).getClaimAsStringList("scope"))
+                .containsExactly("metrics.read");
+
+        mockMvc.perform(post("/oauth2/token")
+                        .with(httpBasic(DASHBOARD_CLIENT_ID, DASHBOARD_CLIENT_SECRET))
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("grant_type", "client_credentials")
+                        .param("scope", "jobs.submit"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_scope"));
+
+        mockMvc.perform(post("/oauth2/token")
+                        .with(httpBasic(CLIENT_ID, CLIENT_SECRET))
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("grant_type", "client_credentials")
+                        .param("scope", "metrics.read"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_scope"));
     }
 }

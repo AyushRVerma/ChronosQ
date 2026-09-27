@@ -213,4 +213,32 @@ class HttpWebhookPayloadTest {
                         UnsupportedOperationException.class
                 );
     }
+
+    @Test
+    void shouldRejectAuthoritySpoofingHeaders() {
+        assertThatThrownBy(
+                () -> new HttpWebhookPayload(
+                        "https://example.com/webhook",
+                        HttpMethod.POST,
+                        Map.of("Host", "internal.service"),
+                        null
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("not permitted");
+    }
+
+    @Test
+    void shouldRejectUrlUserInformation() {
+        assertThatThrownBy(
+                () -> new HttpWebhookPayload(
+                        "https://user:secret@example.com/webhook",
+                        HttpMethod.POST,
+                        null,
+                        null
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("user information");
+    }
 }

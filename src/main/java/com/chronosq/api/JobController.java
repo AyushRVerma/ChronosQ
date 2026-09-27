@@ -8,12 +8,14 @@ import com.chronosq.job.domain.Job;
 import com.chronosq.job.domain.JobStatus;
 import com.chronosq.job.service.JobLifecycleService;
 import com.chronosq.job.service.JobQueryService;
+import com.chronosq.job.service.JobRequeueService;
 import com.chronosq.job.service.JobSubmissionService;
 
 import jakarta.validation.Valid;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -44,6 +46,8 @@ public class JobController {
             jobLifecycleService;
 
     private final JobApiMapper jobApiMapper;
+
+    private final JobRequeueService jobRequeueService;
 
     // @Valid triggers Spring's Bean Validation on SubmitJobRequest before execution.
 
@@ -133,5 +137,27 @@ public class JobController {
                         cancelledJob
                 )
         );
+    }
+
+    @PostMapping("/{jobId}/requeue")
+    public ResponseEntity<RequeueJobResponse> requeueJob(
+            @PathVariable("jobId") UUID jobId,
+            @Valid @RequestBody RequeueJobRequest request,
+            Authentication authentication
+    ) {
+        var result = jobRequeueService.requeue(jobId, authentication.getName(), request.reason());
+        URI location = ServletUriComponentsBuilder.fromCurrentContextPath()
+                .path("/api/v1/jobs/{jobId}")
+                .buildAndExpand(result.job().id())
+                .toUri();
+        return ResponseEntity.created(location).body(new RequeueJobResponse(
+                jobId, jobApiMapper.toResponse(result.job()), result.audit()));
+    }
+
+    @GetMapping("/{jobId}/requeues")
+    public ResponseEntity<List<com.chronosq.job.domain.JobRequeue>> getRequeues(
+            @PathVariable("jobId") UUID jobId
+    ) {
+        return ResponseEntity.ok(jobRequeueService.history(jobId));
     }
 }

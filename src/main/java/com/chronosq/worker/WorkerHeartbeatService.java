@@ -3,6 +3,7 @@ package com.chronosq.worker;
 import java.time.Clock;
 
 import com.chronosq.configuration.WorkerProperties;
+import com.chronosq.job.repository.JobRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -23,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 public class WorkerHeartbeatService {
 
     private final WorkerNodeRepository workerNodeRepository;
+    private final JobRepository jobRepository;
     private final WorkerProperties workerProperties;
     private final HeartbeatProperties heartbeatProperties;
     private final Clock clock;
@@ -35,10 +37,18 @@ public class WorkerHeartbeatService {
     )
     public void sendHeartbeat() {
         try {
+            var heartbeatTime = clock.instant();
             workerNodeRepository.registerOrHeartbeat(
                     workerProperties.workerId(),
                     workerProperties.instanceName(),
-                    clock.instant()
+                    heartbeatTime
+            );
+            jobRepository.extendLeasesForWorker(
+                    workerProperties.workerId(),
+                    heartbeatTime,
+                    heartbeatTime.plusSeconds(
+                            workerProperties.leaseDurationSeconds()
+                    )
             );
         } catch (Exception exception) {
             log.error(

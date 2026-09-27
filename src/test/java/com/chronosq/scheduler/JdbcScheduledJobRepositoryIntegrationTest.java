@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions
 
 import java.time.Instant;
 import java.util.UUID;
+import com.chronosq.security.TestJwtKeyConfiguration;
 
 import com.chronosq.job.domain.Job;
 import com.chronosq.job.domain.JobStatus;
@@ -14,6 +15,7 @@ import com.chronosq.job.repository.JobRepository;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.annotation.DirtiesContext;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -24,6 +26,7 @@ import org.springframework.boot.testcontainers
         .service.connection.ServiceConnection;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.context.annotation.Import;
 
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -32,11 +35,13 @@ import org.testcontainers.postgresql
         .PostgreSQLContainer;
 
 @Testcontainers
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(
         properties = {
                 "chronosq.scheduler.enabled=false"
         }
 )
+@Import(TestJwtKeyConfiguration.class)
 class JdbcScheduledJobRepositoryIntegrationTest {
 
     @Container

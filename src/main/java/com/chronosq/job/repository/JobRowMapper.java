@@ -2,6 +2,7 @@ package com.chronosq.job.repository;
 
 import com.chronosq.job.domain.Job;
 import com.chronosq.job.domain.JobStatus;
+import com.chronosq.job.domain.MissedExecutionPolicy;
 import com.chronosq.job.domain.ScheduleType;
 
 import java.sql.ResultSet;
@@ -67,6 +68,12 @@ public final class JobRowMapper implements RowMapper<Job> //RowMapper is a callb
                         Long.class
                 ),
 
+                resultSet.getString("cron_expression"),
+
+                resultSet.getString("cron_timezone"),
+
+                readMissedExecutionPolicy(resultSet),
+
                 resultSet.getInt(
                         "attempt_count"
                 ),
@@ -111,6 +118,17 @@ public final class JobRowMapper implements RowMapper<Job> //RowMapper is a callb
                         "version"
                 )
         );
+    }
+
+    private MissedExecutionPolicy readMissedExecutionPolicy(
+            ResultSet resultSet
+    ) throws SQLException {
+        String value = resultSet.getString(
+                "missed_execution_policy"
+        );
+        return value == null
+                ? null
+                : MissedExecutionPolicy.valueOf(value);
     }
 
     private Instant readInstant(

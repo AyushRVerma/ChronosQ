@@ -12,6 +12,8 @@ import java.util.UUID;
 
 import com.chronosq.job.domain.JobStateMachine;
 import com.chronosq.job.domain.JobStatus;
+import com.chronosq.job.domain.MissedExecutionPolicy;
+import com.chronosq.job.domain.ScheduleType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -38,6 +40,9 @@ public class JdbcJobRepository implements JobRepository {
                      available_at,
                      schedule_type,
                      interval_seconds,
+                     cron_expression,
+                     cron_timezone,
+                     missed_execution_policy,
                      attempt_count,
                      max_attempts,
                      idempotency_key,
@@ -59,6 +64,9 @@ public class JdbcJobRepository implements JobRepository {
                      :availableAt,
                      :scheduleType,
                      :intervalSeconds,
+                     :cronExpression,
+                     :cronTimeZone,
+                     :missedExecutionPolicy,
                      :attemptCount,
                      :maxAttempts,
                      :idempotencyKey,
@@ -84,6 +92,9 @@ public class JdbcJobRepository implements JobRepository {
                 available_at,
                 schedule_type,
                 interval_seconds,
+                cron_expression,
+                cron_timezone,
+                missed_execution_policy,
                 attempt_count,
                 max_attempts,
                 idempotency_key,
@@ -109,6 +120,9 @@ public class JdbcJobRepository implements JobRepository {
                 available_at,
                 schedule_type,
                 interval_seconds,
+                cron_expression,
+                cron_timezone,
+                missed_execution_policy,
                 attempt_count,
                 max_attempts,
                 idempotency_key,
@@ -174,6 +188,14 @@ public class JdbcJobRepository implements JobRepository {
                         "intervalSeconds",
                         job.intervalSeconds()
                 )
+                .param("cronExpression", job.cronExpression())
+                .param("cronTimeZone", job.cronTimeZone())
+                .param(
+                        "missedExecutionPolicy",
+                        job.missedExecutionPolicy() == null
+                                ? null
+                                : job.missedExecutionPolicy().name()
+                )
                 .param(
                         "attemptCount",
                         job.attemptCount()
@@ -227,8 +249,16 @@ public class JdbcJobRepository implements JobRepository {
             WITH due_jobs AS (
                 SELECT id
                 FROM jobs
-              WHERE (status = :scheduledStatus
-                      OR status = :retryWaitStatus)
+              WHERE (
+                    (
+                        status = :scheduledStatus
+                        AND NOT (
+                            schedule_type = :cronScheduleType
+                            AND missed_execution_policy = :skipPolicy
+                        )
+                    )
+                    OR status = :retryWaitStatus
+                )
                 AND available_at <= :currentTime
                 ORDER BY
                     available_at ASC,
@@ -244,6 +274,40 @@ public class JdbcJobRepository implements JobRepository {
                 version = job.version + 1
             FROM due_jobs
             WHERE job.id = due_jobs.id
+            """;
+
+    private static final String FIND_DUE_SKIPPED_CRON_JOBS = """
+            SELECT
+                id,
+                queue_name,
+                job_type,
+                payload,
+                status,
+                priority,
+                available_at,
+                schedule_type,
+                interval_seconds,
+                cron_expression,
+                cron_timezone,
+                missed_execution_policy,
+                attempt_count,
+                max_attempts,
+                idempotency_key,
+                locked_by,
+                lease_expires_at,
+                timeout_seconds,
+                created_at,
+                updated_at,
+                completed_at,
+                version
+            FROM jobs
+            WHERE status = :scheduledStatus
+              AND schedule_type = :cronScheduleType
+              AND missed_execution_policy = :skipPolicy
+              AND available_at <= :currentTime
+            ORDER BY available_at ASC
+            LIMIT :batchSize
+            FOR UPDATE SKIP LOCKED
             """;
 
     private static final String CLAIM_READY_JOBS = """
@@ -283,6 +347,9 @@ public class JdbcJobRepository implements JobRepository {
                 available_at,
                 schedule_type,
                 interval_seconds,
+                cron_expression,
+                cron_timezone,
+                missed_execution_policy,
                 attempt_count,
                 max_attempts,
                 idempotency_key,
@@ -325,6 +392,15 @@ public class JdbcJobRepository implements JobRepository {
                 .sql(FIND_BY_ID_SQL)
                 .param("jobId", jobId)
                 .query(jobRowMapper) //uses JobRowMapper to convert row
+                .optional();
+    }
+
+    @Override
+    public Optional<Job> findByIdForUpdate(UUID jobId) {
+        Objects.requireNonNull(jobId, "Job ID must not be null");
+        return jdbcClient.sql(FIND_BY_ID_SQL + " FOR UPDATE")
+                .param("jobId", jobId)
+                .query(jobRowMapper)
                 .optional();
     }
 
@@ -419,6 +495,8 @@ public class JdbcJobRepository implements JobRepository {
                         "retryWaitStatus",
                         JobStatus.RETRY_WAIT.name()
                 )
+                .param("cronScheduleType", ScheduleType.CRON.name())
+                .param("skipPolicy", MissedExecutionPolicy.SKIP.name())
                 .param(
                         "readyStatus",
                         JobStatus.READY.name()
@@ -659,6 +737,9 @@ public class JdbcJobRepository implements JobRepository {
                             available_at,
                             schedule_type,
                             interval_seconds,
+                            cron_expression,
+                            cron_timezone,
+                            missed_execution_policy,
                             attempt_count,
                             max_attempts,
                             idempotency_key,
@@ -774,6 +855,179 @@ public class JdbcJobRepository implements JobRepository {
                 .update();
 
         return updatedRowCount == 1;
+    }
+
+    @Override
+    public int extendLeasesForWorker(
+            String workerId,
+            Instant heartbeatTime,
+            Instant leaseExpiresAt
+    ) {
+        Objects.requireNonNull(workerId, "workerId must not be null");
+        Objects.requireNonNull(
+                heartbeatTime,
+                "heartbeatTime must not be null"
+        );
+        Objects.requireNonNull(
+                leaseExpiresAt,
+                "leaseExpiresAt must not be null"
+        );
+
+        if (workerId.isBlank()) {
+            throw new IllegalArgumentException(
+                    "workerId must not be blank"
+            );
+        }
+        if (!leaseExpiresAt.isAfter(heartbeatTime)) {
+            throw new IllegalArgumentException(
+                    "leaseExpiresAt must be after heartbeatTime"
+            );
+        }
+
+        return jdbcClient.sql(
+                        """
+                        UPDATE jobs
+                        SET
+                            lease_expires_at = :leaseExpiresAt
+                        WHERE status = :runningStatus
+                          AND locked_by = :workerId
+                        """
+                )
+                .param("leaseExpiresAt", toOffsetDateTime(leaseExpiresAt))
+                .param("runningStatus", JobStatus.RUNNING.name())
+                .param("workerId", workerId)
+                .update();
+    }
+
+    @Override
+    public List<Job> findDueSkippedCronJobs(
+            Instant currentTime,
+            int batchSize
+    ) {
+        Objects.requireNonNull(
+                currentTime,
+                "currentTime must not be null"
+        );
+        if (batchSize < 1) {
+            throw new IllegalArgumentException(
+                    "batchSize must be at least 1"
+            );
+        }
+
+        return jdbcClient.sql(FIND_DUE_SKIPPED_CRON_JOBS)
+                .param("scheduledStatus", JobStatus.SCHEDULED.name())
+                .param("cronScheduleType", ScheduleType.CRON.name())
+                .param("skipPolicy", MissedExecutionPolicy.SKIP.name())
+                .param("currentTime", toOffsetDateTime(currentTime))
+                .param("batchSize", batchSize)
+                .query(jobRowMapper)
+                .list();
+    }
+
+    @Override
+    public boolean releaseUnstartedJob(
+            UUID jobId,
+            String workerId,
+            Instant releasedAt,
+            long expectedVersion
+    ) {
+        Objects.requireNonNull(jobId, "jobId must not be null");
+        Objects.requireNonNull(workerId, "workerId must not be null");
+        Objects.requireNonNull(releasedAt, "releasedAt must not be null");
+
+        return jdbcClient.sql("""
+                        UPDATE jobs
+                        SET status = :readyStatus,
+                            locked_by = NULL,
+                            lease_expires_at = NULL,
+                            attempt_count = attempt_count - 1,
+                            updated_at = :releasedAt,
+                            version = version + 1
+                        WHERE id = :jobId
+                          AND status = :runningStatus
+                          AND locked_by = :workerId
+                          AND version = :expectedVersion
+                          AND attempt_count > 0
+                        """)
+                .param("readyStatus", JobStatus.READY.name())
+                .param("runningStatus", JobStatus.RUNNING.name())
+                .param("releasedAt", toOffsetDateTime(releasedAt))
+                .param("jobId", jobId)
+                .param("workerId", workerId)
+                .param("expectedVersion", expectedVersion)
+                .update() == 1;
+    }
+
+    @Override
+    public boolean rescheduleSkippedCronJob(
+            UUID jobId,
+            Instant nextAvailableAt,
+            Instant updatedAt,
+            long expectedVersion
+    ) {
+        Objects.requireNonNull(jobId, "jobId must not be null");
+        Objects.requireNonNull(
+                nextAvailableAt,
+                "nextAvailableAt must not be null"
+        );
+        Objects.requireNonNull(updatedAt, "updatedAt must not be null");
+
+        int updatedRows = jdbcClient.sql(
+                        """
+                        UPDATE jobs
+                        SET
+                            available_at = :nextAvailableAt,
+                            updated_at = :updatedAt,
+                            version = version + 1
+                        WHERE id = :jobId
+                          AND status = :scheduledStatus
+                          AND schedule_type = :cronScheduleType
+                          AND missed_execution_policy = :skipPolicy
+                          AND version = :expectedVersion
+                        """
+                )
+                .param("nextAvailableAt", toOffsetDateTime(nextAvailableAt))
+                .param("updatedAt", toOffsetDateTime(updatedAt))
+                .param("jobId", jobId)
+                .param("scheduledStatus", JobStatus.SCHEDULED.name())
+                .param("cronScheduleType", ScheduleType.CRON.name())
+                .param("skipPolicy", MissedExecutionPolicy.SKIP.name())
+                .param("expectedVersion", expectedVersion)
+                .update();
+
+        return updatedRows == 1;
+    }
+
+    @Override
+    public boolean promoteScheduledJob(
+            UUID jobId,
+            Instant updatedAt,
+            long expectedVersion
+    ) {
+        Objects.requireNonNull(jobId, "jobId must not be null");
+        Objects.requireNonNull(updatedAt, "updatedAt must not be null");
+
+        int updatedRows = jdbcClient.sql(
+                        """
+                        UPDATE jobs
+                        SET
+                            status = :readyStatus,
+                            updated_at = :updatedAt,
+                            version = version + 1
+                        WHERE id = :jobId
+                          AND status = :scheduledStatus
+                          AND available_at <= :updatedAt
+                          AND version = :expectedVersion
+                        """
+                )
+                .param("readyStatus", JobStatus.READY.name())
+                .param("updatedAt", toOffsetDateTime(updatedAt))
+                .param("jobId", jobId)
+                .param("scheduledStatus", JobStatus.SCHEDULED.name())
+                .param("expectedVersion", expectedVersion)
+                .update();
+
+        return updatedRows == 1;
     }
 
 

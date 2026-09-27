@@ -2,6 +2,9 @@ package com.chronosq.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import static org.springframework.security.test.web.servlet
+        .request.SecurityMockMvcRequestPostProcessors.jwt;
+
 import static org.springframework.test.web.servlet
         .request.MockMvcRequestBuilders.get;
 
@@ -18,9 +21,11 @@ import static org.springframework.test.web.servlet
         .result.MockMvcResultMatchers.status;
 
 import java.util.UUID;
+import com.chronosq.security.TestJwtKeyConfiguration;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.annotation.DirtiesContext;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -32,6 +37,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.context.annotation.Import;
 
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -47,7 +53,9 @@ import tools.jackson.databind.ObjectMapper;
 
 @Testcontainers
 @SpringBootTest
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @AutoConfigureMockMvc
+@Import(TestJwtKeyConfiguration.class)
 class JobControllerIntegrationTest {
 
     @Container
@@ -107,6 +115,11 @@ class JobControllerIntegrationTest {
         MvcResult submissionResult =
                 mockMvc.perform(
                                 post("/api/v1/jobs")
+                                        .with(jwt().authorities(
+                                                new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                                                        "SCOPE_jobs.submit"
+                                                )
+                                        ))
                                         .contentType(
                                                 MediaType
                                                         .APPLICATION_JSON
@@ -174,6 +187,11 @@ class JobControllerIntegrationTest {
                                 "/api/v1/jobs/{jobId}",
                                 jobId
                         )
+                                .with(jwt().authorities(
+                                        new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                                                "SCOPE_jobs.read"
+                                        )
+                                ))
                 )
                 .andExpect(status().isOk())
                 .andExpect(
@@ -206,6 +224,11 @@ class JobControllerIntegrationTest {
 
         mockMvc.perform(
                         post("/api/v1/jobs")
+                                .with(jwt().authorities(
+                                        new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                                                "SCOPE_jobs.submit"
+                                        )
+                                ))
                                 .contentType(
                                         MediaType
                                                 .APPLICATION_JSON
@@ -255,6 +278,11 @@ class JobControllerIntegrationTest {
                                 "/api/v1/jobs/{jobId}",
                                 missingJobId
                         )
+                                .with(jwt().authorities(
+                                        new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                                                "SCOPE_jobs.read"
+                                        )
+                                ))
                 )
                 .andExpect(
                         status().isNotFound()
@@ -353,6 +381,11 @@ class JobControllerIntegrationTest {
                                 "/api/v1/jobs/{jobId}/cancel",
                                 jobId
                         )
+                                .with(jwt().authorities(
+                                        new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                                                "SCOPE_jobs.cancel"
+                                        )
+                                ))
                 )
                 .andExpect(status().isOk())
                 .andExpect(
@@ -395,6 +428,11 @@ class JobControllerIntegrationTest {
                                 "/api/v1/jobs/{jobId}/executions",
                                 jobId
                         )
+                                .with(jwt().authorities(
+                                        new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                                                "SCOPE_jobs.read"
+                                        )
+                                ))
                 )
                 .andExpect(status().isOk())
                 .andExpect(
@@ -420,6 +458,11 @@ class JobControllerIntegrationTest {
 
         mockMvc.perform(
                         post("/api/v1/jobs")
+                                .with(jwt().authorities(
+                                        new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                                                "SCOPE_jobs.submit"
+                                        )
+                                ))
                                 .contentType(
                                         MediaType
                                                 .APPLICATION_JSON
@@ -443,6 +486,11 @@ class JobControllerIntegrationTest {
 
         return mockMvc.perform(
                         post("/api/v1/jobs")
+                                .with(jwt().authorities(
+                                        new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                                                "SCOPE_jobs.submit"
+                                        )
+                                ))
                                 .contentType(
                                         MediaType
                                                 .APPLICATION_JSON

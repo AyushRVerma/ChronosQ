@@ -12,6 +12,8 @@ import com.chronosq.job.service
 
 import com.chronosq.job.service
         .JobNotFoundException;
+import com.chronosq.job.service.JobAlreadyRequeuedException;
+import com.chronosq.job.service.JobNotRequeueableException;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -52,6 +54,20 @@ public class GlobalApiExceptionHandler {
             LoggerFactory.getLogger(
                     GlobalApiExceptionHandler.class
             );
+
+    @ExceptionHandler(JobAlreadyRequeuedException.class)
+    public ResponseEntity<ApiErrorResponse> handleAlreadyRequeued(
+            JobAlreadyRequeuedException exception, HttpServletRequest request) {
+        return buildResponse(HttpStatus.CONFLICT, "JOB_ALREADY_REQUEUED",
+                exception.getMessage(), request, Map.of());
+    }
+
+    @ExceptionHandler(JobNotRequeueableException.class)
+    public ResponseEntity<ApiErrorResponse> handleNotRequeueable(
+            JobNotRequeueableException exception, HttpServletRequest request) {
+        return buildResponse(HttpStatus.CONFLICT, "JOB_NOT_REQUEUEABLE",
+                exception.getMessage(), request, Map.of());
+    }
 
     @ExceptionHandler(JobNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleJobNotFound(JobNotFoundException exception, HttpServletRequest request) {

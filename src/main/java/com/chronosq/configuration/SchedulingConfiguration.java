@@ -9,6 +9,7 @@ import org.springframework.context.annotation
 
 import org.springframework.scheduling.annotation
         .EnableScheduling;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 import java.time.Clock;
 
@@ -33,6 +34,16 @@ import java.time.Clock;
 //This class activates and hooks up Spring's background scheduling capabilities and
 // registers your SchedulerProperties configuration bean.
 public class SchedulingConfiguration {
+
+    // Keep periodic database work off the dedicated job timeout monitor.
+    // A blocked poll must not delay another job's timeout or heartbeat.
+    @Bean(name = "taskScheduler")
+    public ThreadPoolTaskScheduler taskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(4);
+        scheduler.setThreadNamePrefix("chronosq-scheduled-");
+        return scheduler;
+    }
 
     @Bean
 //In Java 8+, java.time.Clock is an abstract representation of a clock that supplies the current date and time in a specific timezone (in this case, UTC).

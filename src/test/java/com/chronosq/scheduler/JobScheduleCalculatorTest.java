@@ -158,55 +158,43 @@ class JobScheduleCalculatorTest {
     @Test
     void shouldCalculateNextFixedInterval() {
 
-        Instant previousTime =
-                Instant.parse(
-                        "2026-01-01T10:00:00Z"
-                );
-
-        Instant now =
+        Instant completedAt =
                 Instant.parse(
                         "2026-01-01T10:01:00Z"
                 );
 
         Instant nextTime =
                 calculator.calculateNextFixedInterval(
-                        previousTime,
-                        300L,
-                        now
+                        completedAt,
+                        300L
                 );
 
         assertThat(nextTime)
                 .isEqualTo(
                         Instant.parse(
-                                "2026-01-01T10:05:00Z"
+                                "2026-01-01T10:06:00Z"
                         )
                 );
     }
 
     @Test
-    void shouldSkipMissedFixedIntervals() {
+    void shouldScheduleFromLateCompletion() {
 
-        Instant previousTime =
-                Instant.parse(
-                        "2026-01-01T10:00:00Z"
-                );
-
-        Instant now =
+        Instant completedAt =
                 Instant.parse(
                         "2026-01-01T10:16:00Z"
                 );
 
         Instant nextTime =
                 calculator.calculateNextFixedInterval(
-                        previousTime,
-                        300L,
-                        now
+                        completedAt,
+                        300L
                 );
 
         assertThat(nextTime)
                 .isEqualTo(
                         Instant.parse(
-                                "2026-01-01T10:20:00Z"
+                                "2026-01-01T10:21:00Z"
                         )
                 );
     }
@@ -214,21 +202,15 @@ class JobScheduleCalculatorTest {
     @Test
     void shouldScheduleAfterExactIntervalBoundary() {
 
-        Instant previousTime =
-                Instant.parse(
-                        "2026-01-01T10:00:00Z"
-                );
-
-        Instant now =
+        Instant completedAt =
                 Instant.parse(
                         "2026-01-01T10:15:00Z"
                 );
 
         Instant nextTime =
                 calculator.calculateNextFixedInterval(
-                        previousTime,
-                        300L,
-                        now
+                        completedAt,
+                        300L
                 );
 
         assertThat(nextTime)
@@ -246,8 +228,7 @@ class JobScheduleCalculatorTest {
                 () -> calculator
                         .calculateNextFixedInterval(
                                 currentTime,
-                                0L,
-                                currentTime
+                                0L
                         )
         )
                 .isInstanceOf(
@@ -256,6 +237,42 @@ class JobScheduleCalculatorTest {
                 .hasMessageContaining(
                         "greater than zero"
                 );
+    }
+
+    @Test
+    void shouldCalculateWeekdayCronInUtc() {
+        Instant next = calculator.calculateNextCron(
+                Instant.parse("2026-01-02T09:00:00Z"),
+                "0 0 9 * * MON-FRI",
+                "UTC"
+        );
+
+        assertThat(next).isEqualTo(
+                Instant.parse("2026-01-05T09:00:00Z")
+        );
+    }
+
+    @Test
+    void shouldApplyCronTimeZone() {
+        Instant next = calculator.calculateNextCron(
+                Instant.parse("2026-01-01T08:30:00Z"),
+                "0 0 9 * * *",
+                "Asia/Kolkata"
+        );
+
+        assertThat(next).isEqualTo(
+                Instant.parse("2026-01-02T03:30:00Z")
+        );
+    }
+
+    @Test
+    void shouldRejectInvalidCronExpression() {
+        assertThatThrownBy(() -> calculator.calculateNextCron(
+                currentTime,
+                "not-a-cron",
+                "UTC"
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("invalid");
     }
 
     @Test

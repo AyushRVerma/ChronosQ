@@ -31,7 +31,7 @@ import org.springframework.context.annotation.Primary;
  * RSA key every time the test application starts.
  */
 @TestConfiguration(proxyBeanMethods = false)
-class TestJwtKeyConfiguration {
+public class TestJwtKeyConfiguration {
 
     /*
      * Generate a temporary 2048-bit RSA key pair.

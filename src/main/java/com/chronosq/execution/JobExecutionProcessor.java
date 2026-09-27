@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.chronosq.handler.JobHandler;
 import com.chronosq.handler.JobHandlerRegistry;
@@ -40,9 +41,21 @@ public class JobExecutionProcessor {
 
     public void process(ClaimedJob claimedJob) {
 
+        process(claimedJob, new AtomicBoolean());
+    }
+
+    public void process(
+            ClaimedJob claimedJob,
+            AtomicBoolean completionClaimed
+    ) {
+
         Objects.requireNonNull(
                 claimedJob,
                 "claimedJob must not be null"
+        );
+        Objects.requireNonNull(
+                completionClaimed,
+                "completionClaimed must not be null"
         );
 
         try (JobLogContext ignored =
@@ -53,32 +66,113 @@ public class JobExecutionProcessor {
             logger.info("Job execution started");
 
             try {
-//            1. Look up the matching JobHandler for this job's type (e.g. "send-email")
                 JobHandler handler =
-                        jobHandlerRegistry
-                                .getRequiredHandler(
-                                        claimedJob.job()
-                                                .jobType()
-                                );
-                // 2. Run the actual business logic!
+                        jobHandlerRegistry.getRequiredHandler(
+                                claimedJob.job().jobType()
+                        );
                 handler.execute(claimedJob.job());
-
-
-                // 3. If no exception occurred -> complete successfully!
-
-                completeSuccessfully(claimedJob);
-
             } catch (Exception exception) {
-
                 completeWithFailure(
                         claimedJob,
-                        exception
+                        exception,
+                        completionClaimed
                 );
+                return;
             }
+
+            // Completion persistence is deliberately outside the handler
+            // catch block. A database or transaction failure here must not
+            // be misclassified as a handler failure and retried as though
+            // the external side effect had failed.
+            completeSuccessfully(
+                    claimedJob,
+                    completionClaimed
+            );
         }
 
     }
-    private void completeSuccessfully(ClaimedJob claimedJob) {
+    public boolean timeOut(
+            ClaimedJob claimedJob,
+            AtomicBoolean completionClaimed
+    ) {
+        return timeOut(
+                claimedJob,
+                completionClaimed,
+                () -> { }
+        );
+    }
+
+    public boolean timeOut(
+            ClaimedJob claimedJob,
+            AtomicBoolean completionClaimed,
+            Runnable interruptExecution
+    ) {
+        Runnable timeoutFinalization = claimTimeout(
+                claimedJob,
+                completionClaimed,
+                interruptExecution
+        );
+        if (timeoutFinalization == null) {
+            return false;
+        }
+
+        timeoutFinalization.run();
+        return true;
+    }
+
+    public Runnable claimTimeout(
+            ClaimedJob claimedJob,
+            AtomicBoolean completionClaimed,
+            Runnable interruptExecution
+    ) {
+        Objects.requireNonNull(claimedJob, "claimedJob must not be null");
+        Objects.requireNonNull(
+                completionClaimed,
+                "completionClaimed must not be null"
+        );
+        Objects.requireNonNull(
+                interruptExecution,
+                "interruptExecution must not be null"
+        );
+
+        Instant finishedAt = clock.instant();
+        JobExecutionTimeoutException timeout =
+                new JobExecutionTimeoutException(
+                        claimedJob.job().id(),
+                        claimedJob.job().timeoutSeconds()
+                );
+        ExecutionResult result = ExecutionResult.failed(
+                ExecutionStatus.TIMED_OUT,
+                finishedAt,
+                calculateDurationMs(claimedJob, finishedAt),
+                "EXECUTION_TIMEOUT",
+                timeout.getMessage()
+        );
+
+        if (!completionClaimed.compareAndSet(false, true)) {
+            return null;
+        }
+
+        interruptExecution.run();
+
+        return () -> {
+            try {
+                jobExecutionCompletionService.complete(
+                        claimedJob,
+                        result,
+                        timeout
+                );
+            } catch (RuntimeException exception) {
+                completionClaimed.set(false);
+                throw exception;
+            }
+        };
+    }
+
+    private void completeSuccessfully(
+            ClaimedJob claimedJob,
+            AtomicBoolean completionClaimed
+    ) {
 
         Instant finishedAt = clock.instant();
 
@@ -92,22 +186,31 @@ public class JobExecutionProcessor {
                         durationMs
                 );
 
-        jobExecutionCompletionService.complete(
-                claimedJob,
-                result
+        boolean completed = completeOnce(
+                completionClaimed,
+                () -> jobExecutionCompletionService.complete(
+                        claimedJob,
+                        result
+                )
         );
 
-        logger.info(
+        if (completed) {
+            logger.info(
                 """
                 Job execution succeeded. \
                 jobId={}, executionId={}
                 """,
                 claimedJob.job().id(),
                 claimedJob.execution().id()
-        );
+            );
+        }
     }
 
-    private void completeWithFailure(ClaimedJob claimedJob, Exception exception) {
+    private void completeWithFailure(
+            ClaimedJob claimedJob,
+            Exception exception,
+            AtomicBoolean completionClaimed
+    ) {
 
         Instant finishedAt =
                 clock.instant();
@@ -128,13 +231,17 @@ public class JobExecutionProcessor {
                         exception.getMessage()
                 );
 
-        jobExecutionCompletionService.complete(
-                claimedJob,
-                result,
-                exception
+        boolean completed = completeOnce(
+                completionClaimed,
+                () -> jobExecutionCompletionService.complete(
+                        claimedJob,
+                        result,
+                        exception
+                )
         );
 
-        logger.warn(
+        if (completed) {
+            logger.warn(
                 """
                 Job execution failed. \
                 jobId={}, executionId={}
@@ -142,7 +249,25 @@ public class JobExecutionProcessor {
                 claimedJob.job().id(),
                 claimedJob.execution().id(),
                 exception
-        );
+            );
+        }
+    }
+
+    private boolean completeOnce(
+            AtomicBoolean completionClaimed,
+            Runnable completion
+    ) {
+        if (!completionClaimed.compareAndSet(false, true)) {
+            return false;
+        }
+
+        try {
+            completion.run();
+            return true;
+        } catch (RuntimeException exception) {
+            completionClaimed.set(false);
+            throw exception;
+        }
     }
 
     private long calculateDurationMs(

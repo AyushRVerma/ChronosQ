@@ -61,6 +61,8 @@ public class JobSubmissionService {
                         .calculateInitialSchedule(
                                 request.scheduleType(),
                                 request.availableAt(),
+                                request.cronExpression(),
+                                request.cronTimeZone(),
                                 now
                         );
 
@@ -76,6 +78,9 @@ public class JobSubmissionService {
                 scheduleDecision.availableAt(),
                 request.scheduleType(),
                 request.intervalSeconds(),
+                request.cronExpression(),
+                request.cronTimeZone(),
+                request.missedExecutionPolicy(),
                 0,
                 request.maxAttemptsOrDefault(),
                 idempotencyKey,

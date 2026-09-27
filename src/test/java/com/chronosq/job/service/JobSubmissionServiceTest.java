@@ -16,6 +16,7 @@ import com.chronosq.api.JobApiMapper;
 import com.chronosq.api.SubmitJobRequest;
 import com.chronosq.job.domain.Job;
 import com.chronosq.job.domain.JobStatus;
+import com.chronosq.job.domain.MissedExecutionPolicy;
 import com.chronosq.job.domain.ScheduleType;
 import com.chronosq.job.repository.JobRepository;
 
@@ -227,6 +228,40 @@ class JobSubmissionServiceTest {
 
         assertThat(result.intervalSeconds())
                 .isEqualTo(300L);
+    }
+
+    @Test
+    void shouldCreateCronJobWithTimeZoneAndMisfirePolicy() {
+        JobSubmissionService service = createService();
+        SubmitJobRequest request = new SubmitJobRequest(
+                "maintenance",
+                "PRINT_MESSAGE",
+                payload,
+                5,
+                null,
+                ScheduleType.CRON,
+                null,
+                "0 0 9 * * MON-FRI",
+                "Asia/Kolkata",
+                MissedExecutionPolicy.RUN_ONCE_IMMEDIATELY,
+                3,
+                30,
+                null
+        );
+        when(jobApiMapper.toPayloadString(payload))
+                .thenReturn("{\"message\":\"scheduled\"}");
+        when(jobRepository.save(any(Job.class))).thenReturn(true);
+
+        Job result = service.submit(request);
+
+        assertThat(result.status()).isEqualTo(JobStatus.SCHEDULED);
+        assertThat(result.scheduleType()).isEqualTo(ScheduleType.CRON);
+        assertThat(result.cronExpression())
+                .isEqualTo("0 0 9 * * MON-FRI");
+        assertThat(result.cronTimeZone()).isEqualTo("Asia/Kolkata");
+        assertThat(result.missedExecutionPolicy())
+                .isEqualTo(MissedExecutionPolicy.RUN_ONCE_IMMEDIATELY);
+        assertThat(result.availableAt()).isAfter(Instant.now());
     }
 
     @Test

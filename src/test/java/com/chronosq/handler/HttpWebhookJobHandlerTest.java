@@ -3,22 +3,18 @@ package com.chronosq.handler;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import java.net.InetAddress;
+import java.net.URI;
 import java.time.Instant;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
-
 import com.chronosq.job.domain.Job;
 import com.chronosq.job.domain.JobStatus;
 import com.chronosq.job.domain.ScheduleType;
@@ -27,21 +23,19 @@ import tools.jackson.databind.ObjectMapper;
 
 class HttpWebhookJobHandlerTest {
 
-    private MockRestServiceServer mockServer;
+    private PinnedWebhookClient webhookClient;
+    private WebhookTargetValidator targetValidator;
     private HttpWebhookJobHandler handler;
 
     @BeforeEach
     void setUp() {
-        RestClient.Builder restClientBuilder =
-                RestClient.builder();
-
-        mockServer = MockRestServiceServer
-                .bindTo(restClientBuilder)
-                .build();
+        webhookClient = mock(PinnedWebhookClient.class);
+        targetValidator = mock(WebhookTargetValidator.class);
 
         handler = new HttpWebhookJobHandler(
-                restClientBuilder.build(),
-                new ObjectMapper()
+                webhookClient,
+                new ObjectMapper(),
+                targetValidator
         );
     }
 
@@ -52,34 +46,13 @@ class HttpWebhookJobHandlerTest {
     }
 
     @Test
-    void shouldSendSuccessfulWebhookRequest() {
-        mockServer.expect(
-                        requestTo(
-                                "https://example.com/api/orders"
-                        )
-                )
-                .andExpect(
-                        method(HttpMethod.POST)
-                )
-                .andExpect(
-                        header(
-                                "X-Source",
-                                "ChronosQ"
-                        )
-                )
-                .andExpect(
-                        content().json(
-                                """
-                                {
-                                    "orderId": "order-1001",
-                                    "status": "CREATED"
-                                }
-                                """
-                        )
-                )
-                .andRespond(
-                        withStatus(HttpStatus.NO_CONTENT)
-                );
+    void shouldSendSuccessfulWebhookRequest() throws Exception {
+        WebhookTargetValidator.ValidatedWebhookTarget target =
+                validatedTarget();
+        when(targetValidator.validate(any(URI.class)))
+                .thenReturn(target);
+        when(webhookClient.exchange(any(), any()))
+                .thenReturn(204);
 
         Job job = createWebhookJob();
 
@@ -87,19 +60,18 @@ class HttpWebhookJobHandlerTest {
                 () -> handler.execute(job)
         ).doesNotThrowAnyException();
 
-        mockServer.verify();
+        verify(webhookClient).exchange(
+                org.mockito.ArgumentMatchers.eq(target),
+                any(HttpWebhookPayload.class)
+        );
     }
 
     @Test
-    void shouldThrowExceptionForUnsuccessfulResponse() {
-        mockServer.expect(
-                        requestTo(
-                                "https://example.com/api/orders"
-                        )
-                )
-                .andRespond(
-                        withStatus(HttpStatus.BAD_GATEWAY)
-                );
+    void shouldThrowExceptionForUnsuccessfulResponse() throws Exception {
+        when(targetValidator.validate(any(URI.class)))
+                .thenReturn(validatedTarget());
+        when(webhookClient.exchange(any(), any()))
+                .thenReturn(502);
 
         Job job = createWebhookJob();
 
@@ -121,8 +93,6 @@ class HttpWebhookJobHandlerTest {
                             webhookException.isRetryable()
                     ).isTrue();
                 });
-
-        mockServer.verify();
     }
 
     @Test
@@ -163,6 +133,18 @@ class HttpWebhookJobHandlerTest {
                     }
                 }
                 """
+        );
+    }
+
+    private WebhookTargetValidator.ValidatedWebhookTarget validatedTarget()
+            throws Exception {
+        return new WebhookTargetValidator.ValidatedWebhookTarget(
+                URI.create("https://example.com/api/orders"),
+                new InetAddress[] {
+                        InetAddress.getByAddress(new byte[] {
+                                93, (byte) 184, (byte) 216, 34
+                        })
+                }
         );
     }
 

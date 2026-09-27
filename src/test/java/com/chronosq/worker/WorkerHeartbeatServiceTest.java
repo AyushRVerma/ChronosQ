@@ -16,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.chronosq.configuration.HeartbeatProperties;
 import com.chronosq.configuration.WorkerProperties;
+import com.chronosq.job.repository.JobRepository;
 
 @ExtendWith(MockitoExtension.class)
 class WorkerHeartbeatServiceTest {
@@ -25,6 +26,9 @@ class WorkerHeartbeatServiceTest {
 
     @Mock
     private WorkerNodeRepository workerNodeRepository;
+
+    @Mock
+    private JobRepository jobRepository;
 
     private WorkerHeartbeatService heartbeatService;
 
@@ -53,6 +57,7 @@ class WorkerHeartbeatServiceTest {
 
         heartbeatService = new WorkerHeartbeatService(
                 workerNodeRepository,
+                jobRepository,
                 workerProperties,
                 heartbeatProperties,
                 clock
@@ -69,6 +74,11 @@ class WorkerHeartbeatServiceTest {
                         "local-instance",
                         CURRENT_TIME
                 );
+        verify(jobRepository).extendLeasesForWorker(
+                "worker-1",
+                CURRENT_TIME,
+                CURRENT_TIME.plusSeconds(60)
+        );
     }
 
     @Test

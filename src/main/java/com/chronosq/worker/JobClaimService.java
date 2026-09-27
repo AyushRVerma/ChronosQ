@@ -44,7 +44,8 @@ public class JobClaimService {
 
     @Transactional
     public List<ClaimedJob> claimAvailableJobs(
-            Instant currentTime
+            Instant currentTime,
+            int availableCapacity
     ) {
 
         Objects.requireNonNull(
@@ -52,7 +53,13 @@ public class JobClaimService {
                 "currentTime must not be null"
         );
 
-        if (!workerProperties.enabled()) {
+        if (availableCapacity < 0) {
+            throw new IllegalArgumentException(
+                    "availableCapacity must not be negative"
+            );
+        }
+
+        if (!workerProperties.enabled() || availableCapacity == 0) {
             return List.of();
         }
 
@@ -68,8 +75,8 @@ public class JobClaimService {
                         workerProperties.workerId(),
                         currentTime,
                         leaseExpiresAt,
-                        workerProperties
-                                .claimBatchSize()
+                        Math.min(workerProperties.claimBatchSize(),
+                                availableCapacity)
                 );
 
         List<ClaimedJob> results =
@@ -104,6 +111,33 @@ public class JobClaimService {
         );
 
         return List.copyOf(results);
+    }
+
+    @Transactional
+    public void releaseUnstartedJob(ClaimedJob claimedJob, Instant releasedAt) {
+        Objects.requireNonNull(claimedJob, "claimedJob must not be null");
+        Objects.requireNonNull(releasedAt, "releasedAt must not be null");
+
+        // Dispatch was rejected before the handler started. Roll back the
+        // claim's attempt number and remove its never-started execution.
+        if (!jobRepository.releaseUnstartedJob(
+                claimedJob.job().id(),
+                claimedJob.job().lockedBy(),
+                releasedAt,
+                claimedJob.job().version())) {
+            throw new IllegalStateException(
+                    "Could not release unstarted job " + claimedJob.job().id()
+            );
+        }
+        if (!jobExecutionRepository.deleteUnstartedExecution(
+                claimedJob.execution().id(),
+                claimedJob.job().id(),
+                claimedJob.execution().workerId())) {
+            throw new IllegalStateException(
+                    "Could not remove unstarted execution "
+                            + claimedJob.execution().id()
+            );
+        }
     }
 
     private JobExecution createExecution(

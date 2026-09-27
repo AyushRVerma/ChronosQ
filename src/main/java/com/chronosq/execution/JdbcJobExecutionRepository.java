@@ -26,23 +26,25 @@ public class JdbcJobExecutionRepository
                 attempt_number,
                 status,
                 started_at,
+                scheduled_available_at,
                 finished_at,
                 duration_ms,
                 error_type,
                 error_message
             )
-            VALUES (
+            SELECT
                 :id,
                 :jobId,
                 :workerId,
                 :attemptNumber,
                 :status,
                 :startedAt,
+                job.available_at,
                 :finishedAt,
                 :durationMs,
                 :errorType,
                 :errorMessage
-            )
+            FROM jobs job WHERE job.id = :jobId
             """;
 
     private static final String FIND_BY_ID_SQL = """
@@ -265,6 +267,30 @@ public class JdbcJobExecutionRepository
 
         return updatedRows == 1;
     }
+    @Override
+    public boolean deleteUnstartedExecution(
+            UUID executionId,
+            UUID jobId,
+            String workerId
+    ) {
+        Objects.requireNonNull(executionId, "executionId must not be null");
+        Objects.requireNonNull(jobId, "jobId must not be null");
+        Objects.requireNonNull(workerId, "workerId must not be null");
+
+        return jdbcClient.sql("""
+                        DELETE FROM job_executions
+                        WHERE id = :executionId
+                          AND job_id = :jobId
+                          AND worker_id = :workerId
+                          AND status = :runningStatus
+                        """)
+                .param("executionId", executionId)
+                .param("jobId", jobId)
+                .param("workerId", workerId)
+                .param("runningStatus", ExecutionStatus.RUNNING.name())
+                .update() == 1;
+    }
+
     @Override
     public boolean abandonRunningExecution(
             UUID jobId,

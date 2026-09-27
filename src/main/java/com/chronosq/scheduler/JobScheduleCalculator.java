@@ -1,13 +1,15 @@
 package com.chronosq.scheduler;
 
-import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Objects;
 
 import com.chronosq.job.domain.JobStatus;
 import com.chronosq.job.domain.ScheduleType;
 
 import org.springframework.stereotype.Component;
+import org.springframework.scheduling.support.CronExpression;
 
 @Component
 
@@ -23,6 +25,22 @@ public final class JobScheduleCalculator {
             Instant requestedAvailableAt,
             Instant currentTime
     ) {
+        return calculateInitialSchedule(
+                scheduleType,
+                requestedAvailableAt,
+                null,
+                null,
+                currentTime
+        );
+    }
+
+    public ScheduleDecision calculateInitialSchedule(
+            ScheduleType scheduleType,
+            Instant requestedAvailableAt,
+            String cronExpression,
+            String cronTimeZone,
+            Instant currentTime
+    ) {
 
         Objects.requireNonNull(
                 scheduleType, "scheduleType must not be null"
@@ -35,6 +53,8 @@ public final class JobScheduleCalculator {
         Instant availableAt = calculateInitialAvailableAt(
                         scheduleType,
                         requestedAvailableAt,
+                        cronExpression,
+                        cronTimeZone,
                         currentTime
                 );
 
@@ -51,19 +71,13 @@ public final class JobScheduleCalculator {
     }
 
     public Instant calculateNextFixedInterval(
-            Instant previousAvailableAt,
-            long intervalSeconds,
-            Instant currentTime
+            Instant completedAt,
+            long intervalSeconds
     ) {
 
         Objects.requireNonNull(
-                previousAvailableAt,
-                "previousAvailableAt must not be null"
-        );
-
-        Objects.requireNonNull(
-                currentTime,
-                "currentTime must not be null"
+                completedAt,
+                "completedAt must not be null"
         );
 
         if (intervalSeconds <= 0) {
@@ -75,50 +89,56 @@ public final class JobScheduleCalculator {
             );
         }
 
-        Instant nextScheduledTime = previousAvailableAt.plusSeconds(intervalSeconds);
+        return completedAt.plusSeconds(intervalSeconds);
+    }
 
-        if (nextScheduledTime.isAfter(currentTime)) {
-            return nextScheduledTime;
+    public Instant calculateNextCron(
+            Instant after,
+            String expression,
+            String timeZone
+    ) {
+        Objects.requireNonNull(after, "after must not be null");
+        if (expression == null || expression.isBlank()) {
+            throw new IllegalArgumentException(
+                    "cron expression must not be blank"
+            );
         }
 
-        //The job would run 120 times in a crazy rapid-fire loop to "catch up" on all missed runs
+        ZoneId zone;
+        try {
+            zone = ZoneId.of(timeZone);
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException(
+                    "cron time zone is invalid: " + timeZone,
+                    exception
+            );
+        }
 
-        //1. Calculate how many seconds have elapsed since last run
-       // 7200 seconds
-        long elapsedSeconds =
-                Duration.between(
-                        previousAvailableAt,
-                        currentTime
-                ).getSeconds();
+        CronExpression cron;
+        try {
+            cron = CronExpression.parse(expression);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException(
+                    "cron expression is invalid: " + expression,
+                    exception
+            );
+        }
 
-        //Divide by interval to find how many full intervals were missed
-        //7200 / 60 = 120 missed intervals
-        long completedIntervals =
-                elapsedSeconds / intervalSeconds;
-
-
-        //Skip all missed intervals and target the VERY NEXT future slot!
-        //121
-        long intervalsToNextExecution =
-                completedIntervals + 1;
-
-
-        long secondsToNextExecution =
-                Math.multiplyExact(
-                        intervalsToNextExecution,
-                        intervalSeconds
-                );
-
-        // correct timing
-        return previousAvailableAt.plusSeconds(
-                secondsToNextExecution
-        );
+        ZonedDateTime next = cron.next(after.atZone(zone));
+        if (next == null) {
+            throw new IllegalArgumentException(
+                    "cron expression has no future execution time"
+            );
+        }
+        return next.toInstant();
     }
 
     //This method determines when the job should be eligible to run
     private Instant calculateInitialAvailableAt(
             ScheduleType scheduleType,
             Instant requestedAvailableAt,
+            String cronExpression,
+            String cronTimeZone,
             Instant currentTime
     ) {
 
@@ -148,6 +168,12 @@ public final class JobScheduleCalculator {
 
                 yield requestedAvailableAt;
             }
+
+            case CRON -> calculateNextCron(
+                    currentTime,
+                    cronExpression,
+                    cronTimeZone
+            );
         };
     }
 

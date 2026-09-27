@@ -50,11 +50,17 @@ public class WorkerPoller {
     public void pollAndDispatch() {
 
         try {
+            int availableCapacity = jobExecutionDispatcher.availableCapacity();
+            if (availableCapacity == 0) {
+                return;
+            }
+
             Instant currentTime = clock.instant();
 
             List<ClaimedJob> claimedJobs = jobClaimService
                             .claimAvailableJobs(
-                                    currentTime
+                                    currentTime,
+                                    availableCapacity
                             );
 
             int dispatchedCount = jobExecutionDispatcher.dispatch(

@@ -300,6 +300,40 @@ class JobApiSecurityIntegrationTest {
                 );
     }
 
+    @Test
+    void shouldAllowDashboardWithMetricsReadScope()
+            throws Exception {
+
+        mockMvc.perform(
+                        get("/api/v1/dashboard")
+                                .with(
+                                        jwt().authorities(
+                                                new SimpleGrantedAuthority(
+                                                        "SCOPE_metrics.read"
+                                                )
+                                        )
+                                )
+                )
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void shouldRejectDashboardWithoutMetricsReadScope()
+            throws Exception {
+
+        mockMvc.perform(
+                        get("/api/v1/dashboard")
+                                .with(
+                                        jwt().authorities(
+                                                new SimpleGrantedAuthority(
+                                                        "SCOPE_jobs.read"
+                                                )
+                                        )
+                                )
+                )
+                .andExpect(status().isForbidden());
+    }
+
 
     /*
      * Test-only controller.
@@ -335,6 +369,11 @@ class JobApiSecurityIntegrationTest {
                     "id",
                     jobId
             );
+        }
+
+        @GetMapping("/api/v1/dashboard")
+        Map<String, String> dashboard() {
+            return Map.of("status", "ok");
         }
     }
 }

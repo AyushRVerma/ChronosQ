@@ -26,6 +26,17 @@ public record HttpWebhookPayload(
 
     private static final int MAX_URL_LENGTH = 2_048;
     private static final int MAX_HEADER_COUNT = 50;
+    private static final Set<String> FORBIDDEN_HEADERS = Set.of(
+            "host",
+            "content-length",
+            "transfer-encoding",
+            "connection",
+            "upgrade",
+            "forwarded",
+            "x-forwarded-for",
+            "x-forwarded-host",
+            "x-forwarded-proto"
+    );
 
     private static final Set<HttpMethod> ALLOWED_METHODS = Set.of(
                     HttpMethod.POST,
@@ -75,6 +86,12 @@ public record HttpWebhookPayload(
             );
         }
 
+        if (uri.getUserInfo() != null) {
+            throw new IllegalArgumentException(
+                    "Webhook URL must not contain user information"
+            );
+        }
+
         method = (method == null)
                 ? HttpMethod.POST
                 : method;
@@ -108,6 +125,15 @@ public record HttpWebhookPayload(
             if (value == null) {
                 throw new IllegalArgumentException(
                         "Webhook header value must not be null"
+                );
+            }
+
+
+            if (FORBIDDEN_HEADERS.contains(
+                    name.toLowerCase(java.util.Locale.ROOT)
+            )) {
+                throw new IllegalArgumentException(
+                        "Webhook header is not permitted: " + name
                 );
             }
         });

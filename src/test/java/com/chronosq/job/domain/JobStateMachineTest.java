@@ -183,4 +183,14 @@ class JobStateMachineTest {
                                 + "SUCCEEDED -> READY"
                 );
     }
+
+    @Test
+    void onlyDeadLetteredJobsCanBeRequeuedWithoutReopeningTheirState() {
+        for (JobStatus status : JobStatus.values()) {
+            assertThat(JobStateMachine.canRequeue(status))
+                    .isEqualTo(status == JobStatus.DEAD_LETTERED);
+        }
+        assertThat(JobStateMachine.canTransition(
+                JobStatus.DEAD_LETTERED, JobStatus.READY)).isFalse();
+    }
 }
